@@ -1,0 +1,330 @@
+{
+  "_description": "The payroll-exceptions journey, drawn from keel-cloud canon/mockups/ (stages-mock.html, evidence-mock.html, people-mock.html, brief-mock.html) word for word where those mockups speak: the problem, solution and commercial statements, their beliefs and roles, and the evidence of three participants (Dana Okafor, Wei Zhang, Marcus Webb). Bundled default for `--executor scripted` (spec 001-scripted-executor FR-003).",
+  "PROBLEM_FRAME": [
+    {
+      "outcome": "NEEDS_INPUT",
+      "questions": [
+        {
+          "id": "q1",
+          "question": "When you say chasing exceptions — is the cost the hours, or is it that mistakes get through to payday?",
+          "input_type": "text",
+          "required": true
+        }
+      ]
+    },
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "statement": "Payroll managers at 200-800-person companies lose a day of two people's time every month reconciling payroll exceptions that nobody owns until payday forces the question."
+      }
+    }
+  ],
+  "PROBLEM_ASSUMPTIONS": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "assumptions": [
+          {
+            "heading": "They handle exceptions themselves",
+            "statement": "They handle payroll exceptions themselves, at least monthly.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "Tell me about the last time a payroll run didn't go cleanly.",
+              "disconfirming": "When does a payroll run go through without anyone touching it?"
+            },
+            "role": {
+              "new": {
+                "label": "A payroll manager",
+                "roleType": "PRACTITIONER",
+                "about": "Someone who runs payroll themselves and handles the exceptions when a run doesn't go cleanly."
+              }
+            }
+          },
+          {
+            "heading": "It costs hours, not minutes",
+            "statement": "It costs them hours, not minutes.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "How long did that take, start to finish?",
+              "disconfirming": "When was one of these sorted in a couple of minutes?"
+            },
+            "role": {"reuse": "A payroll manager"}
+          },
+          {
+            "heading": "They've tried to fix it",
+            "statement": "They have already tried to fix it themselves.",
+            "risk": "SUPPORTING",
+            "question": {
+              "ask": "What have you tried, to stop this happening?",
+              "disconfirming": "What makes it not worth doing anything about?"
+            },
+            "role": {"reuse": "A payroll manager"}
+          },
+          {
+            "heading": "Finance isn't already handling it",
+            "statement": "Their finance team is not already doing this for them.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "Who picks it up when a payroll number looks wrong?",
+              "disconfirming": "When does finance handle that instead?"
+            },
+            "role": {
+              "new": {
+                "label": "Someone who runs a payroll team",
+                "roleType": "MANAGER",
+                "about": "Owns the payroll process and the people who do it; sees what finance does and doesn't pick up."
+              }
+            }
+          }
+        ],
+        "normalization_rationale": "Two roles settle the problem: the payroll manager who lives the exceptions, and the person who runs the team and would know whether finance already caught them."
+      }
+    }
+  ],
+  "SOLUTION_FRAME": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "statement": "An exceptions queue inside the payroll tool that assigns every exception an owner the day it appears."
+      }
+    }
+  ],
+  "SOLUTION_ASSUMPTIONS": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "assumptions": [
+          {
+            "heading": "Exceptions have nowhere to live today",
+            "statement": "When an exception turns up, there is no place it gets written down.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "When an exception shows up today, where does it get written down?",
+              "disconfirming": "Where does an exception already have a home nobody has to think about?"
+            },
+            "role": {"reuse": "A payroll manager"}
+          },
+          {
+            "heading": "Someone would accept being the owner",
+            "statement": "The payroll manager would take ownership if the tool assigned it to them.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "If the tool assigned an exception to you, would you take it?",
+              "disconfirming": "Who would refuse to own it even after the tool assigned it to them?"
+            },
+            "role": {"reuse": "A payroll manager"}
+          },
+          {
+            "heading": "They'd use it inside the payroll tool",
+            "statement": "They would rather it lived in the payroll tool than beside it.",
+            "risk": "SUPPORTING",
+            "question": {
+              "ask": "Would you rather this lived inside your payroll tool, or somewhere else?",
+              "disconfirming": "Where would you rather this lived, if not inside the payroll tool?"
+            },
+            "role": {"reuse": "A payroll manager"}
+          }
+        ],
+        "normalization_rationale": "All three beliefs are settled by the same payroll manager already introduced for the problem -- nobody new is being asked anything here."
+      }
+    }
+  ],
+  "SOLUTION_REFRAME": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "statement": "An exceptions queue inside the payroll tool that assigns every exception an owner the day it appears.",
+        "rationale": "Nothing contradicted here yet -- this is a placeholder reframe so the screen stays exercisable.",
+        "carries": []
+      }
+    }
+  ],
+  "COMMERCIAL_FRAME": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "statement": "$30 a seat per month, billed annually upfront."
+      }
+    }
+  ],
+  "COMMERCIAL_ASSUMPTIONS": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "assumptions": [
+          {
+            "heading": "Someone owns a budget for this",
+            "statement": "Someone in the payroll organisation owns a budget for this.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "Who in your organisation would sign off on paying for this?",
+              "disconfirming": "Who would say there's no budget for something like this?"
+            },
+            "role": {
+              "new": {
+                "label": "Someone who signs off on payroll software spend",
+                "roleType": "BUYER",
+                "about": "Approves payroll software purchases and decides how they get paid for."
+              }
+            }
+          },
+          {
+            "heading": "They'd pay annually, upfront",
+            "statement": "They would pay a year upfront.",
+            "risk": "LOAD_BEARING",
+            "question": {
+              "ask": "Walk me through the last piece of software your team paid for.",
+              "disconfirming": "What would make you insist on paying monthly instead?"
+            },
+            "role": {"reuse": "Someone who signs off on payroll software spend"}
+          }
+        ],
+        "normalization_rationale": "One new role settles the price: whoever signs off on payroll software spend, since neither the payroll manager nor the team lead controls the budget."
+      }
+    }
+  ],
+  "COMMERCIAL_REFRAME": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "statement": "$30 a seat per month, billed annually upfront.",
+        "rationale": "Nothing contradicted here yet -- this is a placeholder reframe so the screen stays exercisable.",
+        "carries": []
+      }
+    }
+  ],
+  "INTERPRET": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "perAnswer": [
+          {
+            "assumptionId": "It costs hours, not minutes",
+            "evidence": [
+              {
+                "statement": "Last Tuesday I spent about two hours reconciling against invoices.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "Exceptions have nowhere to live today",
+            "evidence": [
+              {
+                "statement": "A shared spreadsheet, if I remember. Usually I don't.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "They'd pay annually, upfront",
+            "evidence": [
+              {
+                "statement": "We've never paid a software invoice before the quarter it covers.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "CONTRADICTS"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "perAnswer": [
+          {
+            "assumptionId": "It costs hours, not minutes",
+            "evidence": [
+              {
+                "statement": "Usually 90 minutes, sometimes half a day if the bureau's involved.",
+                "claimType": "FREQUENCY",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "Exceptions have nowhere to live today",
+            "evidence": [
+              {
+                "statement": "Email, mostly. Whoever spotted it emails whoever they think should fix it.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "They'd pay annually, upfront",
+            "evidence": [
+              {
+                "statement": "Anything annual goes to procurement, and that's a two-month conversation.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "CONTRADICTS"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "perAnswer": [
+          {
+            "assumptionId": "It costs hours, not minutes",
+            "evidence": [
+              {
+                "statement": "We had one last quarter, but our system catches most of it now.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "CONTRADICTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "Exceptions have nowhere to live today",
+            "evidence": [
+              {
+                "statement": "Post-its. I'm not proud of it.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "They'd pay annually, upfront",
+            "evidence": [
+              {
+                "statement": "I'd expense it per run without blinking. Upfront, no.",
+                "claimType": "PURCHASE_BEHAVIOR",
+                "stance": "CONTRADICTS"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "BRIEF": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "findings": [
+          "They handle payroll exceptions themselves, at least monthly.",
+          "When an exception turns up today, there is no place it gets written down.",
+          "The payroll manager would take ownership if the tool assigned it to them.",
+          "Someone in the payroll organisation owns a budget for this.",
+          "They would pay a year upfront -- not holding up: three described the opposite.",
+          "It costs them hours, not minutes -- people disagree: two described it happening, one described it not."
+        ],
+        "openDecisions": [
+          "Whether they have already tried to fix this themselves.",
+          "Whether their finance team is already doing this for them.",
+          "Whether they'd rather this lived inside the payroll tool than beside it."
+        ],
+        "goingAhead": "The problem and solution hold; the commercial framing needs another look before pricing is locked in at $30 annually upfront."
+      }
+    }
+  ]
+}

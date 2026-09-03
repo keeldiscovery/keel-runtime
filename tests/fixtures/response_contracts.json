@@ -1,0 +1,452 @@
+{
+  "_source": "keel-cloud specs/022-inference-orchestrator/spec.md FR-012 (needs_input_schema per FR-013), commit 7ee395ba62a8f4c21c8a7be812a579a91aef059e -- pin, not a second source of truth; re-copy when Cloud's contracts change.",
+  "PROBLEM_FRAME": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["statement"],
+      "properties": {
+        "statement": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "PROBLEM_ASSUMPTIONS": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["assumptions", "normalization_rationale"],
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["heading", "statement", "risk", "question", "role"],
+            "properties": {
+              "heading": {"type": "string"},
+              "statement": {"type": "string"},
+              "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
+              "question": {
+                "type": "object",
+                "required": ["ask", "disconfirming"],
+                "properties": {
+                  "ask": {"type": "string"},
+                  "disconfirming": {"type": "string"},
+                  "probes": {"type": "array", "items": {"type": "string"}}
+                }
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {"type": "string"},
+                  "new": {
+                    "type": "object",
+                    "required": ["label", "roleType", "about"],
+                    "properties": {
+                      "label": {"type": "string"},
+                      "roleType": {
+                        "type": "string",
+                        "enum": ["CONSUMER", "PRACTITIONER", "MANAGER", "BUYER", "GATEKEEPER"]
+                      },
+                      "about": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "normalization_rationale": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "SOLUTION_FRAME": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["statement"],
+      "properties": {
+        "statement": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "SOLUTION_ASSUMPTIONS": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["assumptions", "normalization_rationale"],
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["heading", "statement", "risk", "question", "role"],
+            "properties": {
+              "heading": {"type": "string"},
+              "statement": {"type": "string"},
+              "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
+              "question": {
+                "type": "object",
+                "required": ["ask", "disconfirming"],
+                "properties": {
+                  "ask": {"type": "string"},
+                  "disconfirming": {"type": "string"},
+                  "probes": {"type": "array", "items": {"type": "string"}}
+                }
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {"type": "string"},
+                  "new": {
+                    "type": "object",
+                    "required": ["label", "roleType", "about"],
+                    "properties": {
+                      "label": {"type": "string"},
+                      "roleType": {
+                        "type": "string",
+                        "enum": ["CONSUMER", "PRACTITIONER", "MANAGER", "BUYER", "GATEKEEPER"]
+                      },
+                      "about": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "normalization_rationale": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "COMMERCIAL_FRAME": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["statement"],
+      "properties": {
+        "statement": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "COMMERCIAL_ASSUMPTIONS": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["assumptions", "normalization_rationale"],
+      "properties": {
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["heading", "statement", "risk", "question", "role"],
+            "properties": {
+              "heading": {"type": "string"},
+              "statement": {"type": "string"},
+              "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
+              "question": {
+                "type": "object",
+                "required": ["ask", "disconfirming"],
+                "properties": {
+                  "ask": {"type": "string"},
+                  "disconfirming": {"type": "string"},
+                  "probes": {"type": "array", "items": {"type": "string"}}
+                }
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {"type": "string"},
+                  "new": {
+                    "type": "object",
+                    "required": ["label", "roleType", "about"],
+                    "properties": {
+                      "label": {"type": "string"},
+                      "roleType": {
+                        "type": "string",
+                        "enum": ["CONSUMER", "PRACTITIONER", "MANAGER", "BUYER", "GATEKEEPER"]
+                      },
+                      "about": {"type": "string"}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "normalization_rationale": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "SOLUTION_REFRAME": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["statement", "rationale", "carries"],
+      "properties": {
+        "statement": {"type": "string"},
+        "rationale": {"type": "string"},
+        "carries": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "COMMERCIAL_REFRAME": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["statement", "rationale", "carries"],
+      "properties": {
+        "statement": {"type": "string"},
+        "rationale": {"type": "string"},
+        "carries": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "INTERPRET": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["invitationId", "perAnswer"],
+      "properties": {
+        "invitationId": {"type": "string"},
+        "perAnswer": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["assumptionId", "evidence"],
+            "properties": {
+              "assumptionId": {"type": "string"},
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["statement", "claimType", "stance"],
+                  "properties": {
+                    "statement": {"type": "string"},
+                    "claimType": {
+                      "type": "string",
+                      "enum": [
+                        "PAST_BEHAVIOR",
+                        "CURRENT_WORKFLOW",
+                        "FREQUENCY",
+                        "CONSEQUENCE",
+                        "EXISTING_ALTERNATIVE",
+                        "PURCHASE_BEHAVIOR",
+                        "STATED_PREFERENCE",
+                        "FEATURE_REQUEST",
+                        "SPECULATION",
+                        "FOUNDER_INFERENCE"
+                      ]
+                    },
+                    "stance": {"type": "string", "enum": ["SUPPORTS", "CONTRADICTS", "NEUTRAL"]}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  },
+  "BRIEF": {
+    "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+    "completed_result_schema": {
+      "type": "object",
+      "required": ["findings", "openDecisions"],
+      "properties": {
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "openDecisions": {"type": "array", "items": {"type": "string"}},
+        "goingAhead": {"type": "string"}
+      }
+    },
+    "needs_input_schema": {
+      "type": "object",
+      "required": ["questions"],
+      "properties": {
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "question", "input_type", "required"],
+            "properties": {
+              "id": {"type": "string"},
+              "question": {"type": "string"},
+              "input_type": {"type": "string"},
+              "required": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -13,6 +13,7 @@ import shutil
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 
 from .response_validator import InvalidResponse  # re-exported for executor callers
 
@@ -151,7 +152,10 @@ _EXECUTORS = {
 }
 
 
-def get_executor(name: str) -> Executor:
+_DEFAULT_SCRIPT_PATH = Path(__file__).parent / "testing" / "scripts" / "payroll-exceptions.json"
+
+
+def get_executor(name: str, script_path: str | None = None) -> Executor:
     if name == "stub":
         # Lazy import: keel_runtime.testing is a test-only dependency of the package,
         # never loaded on a real `--executor claude-code` run.
@@ -159,8 +163,17 @@ def get_executor(name: str) -> Executor:
 
         return StubExecutor()
 
+    if name == "scripted":
+        # Lazy import, same reasoning as `stub` above.
+        from .testing.scripted_executor import ScriptedExecutor
+
+        path = Path(script_path) if script_path else _DEFAULT_SCRIPT_PATH
+        with open(path, "r", encoding="utf-8") as handle:
+            script = json.load(handle)
+        return ScriptedExecutor(script)
+
     factory = _EXECUTORS.get(name)
     if factory is None:
-        known = ", ".join(sorted(list(_EXECUTORS.keys()) + ["stub"]))
+        known = ", ".join(sorted(list(_EXECUTORS.keys()) + ["stub", "scripted"]))
         raise SystemExit(f"unknown executor '{name}'; known executors: {known}")
     return factory()

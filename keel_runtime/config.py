@@ -21,6 +21,9 @@ ENV_BASE_URL = "KEEL_BASE_URL"
 ENV_EXECUTOR = "KEEL_EXECUTOR"
 ENV_HOME = "KEEL_HOME"
 ENV_CREDENTIAL_BACKEND = "KEEL_CREDENTIAL_BACKEND"
+# spec 001-scripted-executor FR-002: only meaningful with `--executor scripted`; same
+# flag > env > `$KEEL_HOME/config.json` precedence as every other key.
+ENV_SCRIPT = "KEEL_SCRIPT"
 
 # spec 021 FR-006: a runtime that is merely waiting on a slow long-poll must never be
 # mistaken for dead -- the default is one full poll cycle's worst case (the long-poll
@@ -39,6 +42,7 @@ class RuntimeConfig:
     credential_backend: str
     open_browser: bool
     heartbeat_stale_after: float
+    script_path: str | None
 
 
 @dataclass
@@ -152,6 +156,12 @@ def load(args) -> RuntimeConfig:
 
     heartbeat_stale_after = _resolve_heartbeat_stale_after(args, file_config)
 
+    script_path = (
+        getattr(args, "script", None)
+        or os.environ.get(ENV_SCRIPT)
+        or file_config.get("script")
+    )
+
     return RuntimeConfig(
         base_url=base_url,
         executor=executor,
@@ -159,4 +169,5 @@ def load(args) -> RuntimeConfig:
         credential_backend=credential_backend,
         open_browser=open_browser,
         heartbeat_stale_after=heartbeat_stale_after,
+        script_path=script_path,
     )

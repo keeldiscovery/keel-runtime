@@ -33,7 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument(
         "--executor",
         dest="executor",
-        help="executor to run jobs with: claude-code (default) or stub (test-only)",
+        help="executor to run jobs with: claude-code (default), stub or scripted (test-only)",
+    )
+    connect.add_argument(
+        "--script",
+        dest="script",
+        help="path to a scripted-executor script (only meaningful with --executor scripted; "
+        "defaults to the bundled payroll-exceptions script)",
     )
     connect.add_argument("--home", dest="home", help="overrides KEEL_HOME for this run")
     connect.add_argument(
@@ -82,7 +88,14 @@ def _run_connect(args) -> int:
     config.home.mkdir(parents=True, exist_ok=True)
     _install_heartbeat_shutdown_handlers(config)
 
-    executor = get_executor(config.executor)
+    if config.script_path and config.executor != "scripted":
+        print(
+            f"keel connect: --script is ignored because --executor is '{config.executor}', "
+            "not 'scripted'",
+            file=sys.stderr,
+        )
+
+    executor = get_executor(config.executor, config.script_path)
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)
 

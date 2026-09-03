@@ -8,7 +8,13 @@ from pathlib import Path
 
 from keel_runtime import config as config_module
 
-_ENV_KEYS = ("KEEL_BASE_URL", "KEEL_EXECUTOR", "KEEL_HOME", "KEEL_CREDENTIAL_BACKEND")
+_ENV_KEYS = (
+    "KEEL_BASE_URL",
+    "KEEL_EXECUTOR",
+    "KEEL_HOME",
+    "KEEL_CREDENTIAL_BACKEND",
+    "KEEL_SCRIPT",
+)
 
 
 class ConfigPrecedenceTest(unittest.TestCase):
@@ -34,6 +40,7 @@ class ConfigPrecedenceTest(unittest.TestCase):
             home=str(self.home),
             credential_backend=None,
             no_browser=False,
+            script=None,
         )
         base.update(overrides)
         return Namespace(**base)
@@ -79,6 +86,25 @@ class ConfigPrecedenceTest(unittest.TestCase):
     def test_open_browser_defaults_true(self):
         config = config_module.load(self._args(base_url="http://flag"))
         self.assertTrue(config.open_browser)
+
+    def test_script_defaults_to_none(self):
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertIsNone(config.script_path)
+
+    def test_script_flag_wins_over_env(self):
+        os.environ["KEEL_SCRIPT"] = "/env/script.json"
+        config = config_module.load(
+            self._args(base_url="http://flag", script="/flag/script.json")
+        )
+        self.assertEqual(config.script_path, "/flag/script.json")
+
+    def test_script_env_wins_over_file(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "script": "/file/script.json"})
+        )
+        os.environ["KEEL_SCRIPT"] = "/env/script.json"
+        config = config_module.load(self._args())
+        self.assertEqual(config.script_path, "/env/script.json")
 
 
 if __name__ == "__main__":
