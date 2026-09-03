@@ -176,10 +176,10 @@
               "ask": "Walk me through the last piece of software your team paid for.",
               "disconfirming": "What would make you insist on paying monthly instead?"
             },
-            "role": {"reuse": "Someone who signs off on payroll software spend"}
+            "role": {"reuse": "A payroll manager"}
           }
         ],
-        "normalization_rationale": "One new role settles the price: whoever signs off on payroll software spend, since neither the payroll manager nor the team lead controls the budget."
+        "normalization_rationale": "Whoever signs off on spend would settle whether a budget exists at all, but nobody who fits that has been invited yet -- the payroll manager already in the room can speak to whether annual, upfront billing is one they'd accept, since they're the one who'd feel that model month to month."
       }
     }
   ],
@@ -199,10 +199,30 @@
       "result": {
         "perAnswer": [
           {
+            "assumptionId": "They handle exceptions themselves",
+            "evidence": [
+              {
+                "statement": "I'm the one who catches these every pay cycle, not anyone else on my team.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
             "assumptionId": "It costs hours, not minutes",
             "evidence": [
               {
                 "statement": "Last Tuesday I spent about two hours reconciling against invoices.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "They've tried to fix it",
+            "evidence": [
+              {
+                "statement": "I've tried flagging them in a shared spreadsheet before -- nobody else ever opened it.",
                 "claimType": "PAST_BEHAVIOR",
                 "stance": "SUPPORTS"
               }
@@ -214,6 +234,16 @@
               {
                 "statement": "A shared spreadsheet, if I remember. Usually I don't.",
                 "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
+            "assumptionId": "Someone would accept being the owner",
+            "evidence": [
+              {
+                "statement": "When something like this came up before, I ended up handling it without anyone assigning it to me.",
+                "claimType": "PAST_BEHAVIOR",
                 "stance": "SUPPORTS"
               }
             ]
@@ -236,12 +266,22 @@
       "result": {
         "perAnswer": [
           {
+            "assumptionId": "They handle exceptions themselves",
+            "evidence": [
+              {
+                "statement": "It lands on my desk pretty much every time.",
+                "claimType": "CURRENT_WORKFLOW",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
             "assumptionId": "It costs hours, not minutes",
             "evidence": [
               {
-                "statement": "Usually 90 minutes, sometimes half a day if the bureau's involved.",
-                "claimType": "FREQUENCY",
-                "stance": "SUPPORTS"
+                "statement": "We had one last quarter, but our system catches most of it before it costs anyone real time.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "CONTRADICTS"
               }
             ]
           },
@@ -256,10 +296,20 @@
             ]
           },
           {
+            "assumptionId": "Someone would accept being the owner",
+            "evidence": [
+              {
+                "statement": "I already end up owning most of these whether the tool assigns them or not.",
+                "claimType": "PAST_BEHAVIOR",
+                "stance": "SUPPORTS"
+              }
+            ]
+          },
+          {
             "assumptionId": "They'd pay annually, upfront",
             "evidence": [
               {
-                "statement": "Anything annual goes to procurement, and that's a two-month conversation.",
+                "statement": "Anything annual goes to procurement, and that's a two-month conversation before anyone signs.",
                 "claimType": "CURRENT_WORKFLOW",
                 "stance": "CONTRADICTS"
               }
@@ -273,32 +323,12 @@
       "result": {
         "perAnswer": [
           {
-            "assumptionId": "It costs hours, not minutes",
+            "assumptionId": "Finance isn't already handling it",
             "evidence": [
               {
-                "statement": "We had one last quarter, but our system catches most of it now.",
-                "claimType": "PAST_BEHAVIOR",
-                "stance": "CONTRADICTS"
-              }
-            ]
-          },
-          {
-            "assumptionId": "Exceptions have nowhere to live today",
-            "evidence": [
-              {
-                "statement": "Post-its. I'm not proud of it.",
+                "statement": "If a payroll number looks wrong, it comes to me, not finance.",
                 "claimType": "CURRENT_WORKFLOW",
                 "stance": "SUPPORTS"
-              }
-            ]
-          },
-          {
-            "assumptionId": "They'd pay annually, upfront",
-            "evidence": [
-              {
-                "statement": "I'd expense it per run without blinking. Upfront, no.",
-                "claimType": "PURCHASE_BEHAVIOR",
-                "stance": "CONTRADICTS"
               }
             ]
           }
@@ -314,14 +344,12 @@
           "They handle payroll exceptions themselves, at least monthly.",
           "When an exception turns up today, there is no place it gets written down.",
           "The payroll manager would take ownership if the tool assigned it to them.",
-          "Someone in the payroll organisation owns a budget for this.",
-          "They would pay a year upfront -- not holding up: three described the opposite.",
-          "It costs them hours, not minutes -- people disagree: two described it happening, one described it not."
+          "Their finance team is not already doing this for them.",
+          "They would pay a year upfront -- not holding up: two described the opposite.",
+          "It costs them hours, not minutes -- people disagree: one described it happening, one described it not."
         ],
         "openDecisions": [
-          "Whether they have already tried to fix this themselves.",
-          "Whether their finance team is already doing this for them.",
-          "Whether they'd rather this lived inside the payroll tool than beside it."
+          "Whether someone in the payroll organisation owns a budget for this."
         ],
         "goingAhead": "The problem and solution hold; the commercial framing needs another look before pricing is locked in at $30 annually upfront."
       }
