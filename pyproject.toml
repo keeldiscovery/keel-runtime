@@ -1,0 +1,23 @@
+[project]
+name = "keel-runtime"
+version = "0.1.0"
+description = "Keel's local runtime: authorizes a device against Keel Cloud, long-polls for inference jobs, and executes them locally (spec 020 FR-024..028)."
+requires-python = ">=3.10"
+# Core has no required dependencies -- the standard library alone (spec FR-025). Optional
+# accelerators below are used only when importable; the E2E test (spec SC-002) runs this
+# package uninstalled with bare python3, so nothing here may become a hard requirement.
+dependencies = []
+
+[project.optional-dependencies]
+secure-store = ["keyring"]
+schema = ["jsonschema"]
+
+[project.scripts]
+keel = "keel_runtime.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["keel_runtime*"]

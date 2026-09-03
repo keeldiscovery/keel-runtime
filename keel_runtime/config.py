@@ -1,0 +1,162 @@
+"""Runtime configuration: precedence CLI flags > env vars > $KEEL_HOME/config.json.
+
+Standard library only (spec FR-025). `KEEL_HOME` (env, default `~/.keel`) decides where
+the file-backed config and, later, the credential store live -- it is resolved first,
+independently of the other keys, since the config file's own location depends on it.
+"""
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from .cloud_client import DEFAULT_POLL_WINDOW_SECONDS, POLL_TIMEOUT_MARGIN_SECONDS
+
+DEFAULT_HOME = Path.home() / ".keel"
+
+# Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
+# KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".
+ENV_BASE_URL = "KEEL_BASE_URL"
+ENV_EXECUTOR = "KEEL_EXECUTOR"
+ENV_HOME = "KEEL_HOME"
+ENV_CREDENTIAL_BACKEND = "KEEL_CREDENTIAL_BACKEND"
+
+# spec 021 FR-006: a runtime that is merely waiting on a slow long-poll must never be
+# mistaken for dead -- the default is one full poll cycle's worst case (the long-poll
+# window plus the client's own timeout margin, cloud_client.py) plus 15s of slack for
+# job execution/validation/complete round-trip time (research.md §4). With spec 020's
+# defaults (25s window, 10s margin) this is 50s.
+ENV_HEARTBEAT_STALE_AFTER = "KEEL_HEARTBEAT_STALE_AFTER"
+DEFAULT_HEARTBEAT_STALE_AFTER = DEFAULT_POLL_WINDOW_SECONDS + POLL_TIMEOUT_MARGIN_SECONDS + 15.0
+
+
+@dataclass
+class RuntimeConfig:
+    base_url: str
+    executor: str
+    home: Path
+    credential_backend: str
+    open_browser: bool
+    heartbeat_stale_after: float
+
+
+@dataclass
+class StatusConfig:
+    """The lighter-weight resolution `status` needs (contracts/status-cli-output.md):
+    just `home` and the staleness threshold -- no `base_url` requirement, since
+    `status` must answer even when no runtime has ever connected from this
+    `$KEEL_HOME` (spec Acceptance Scenario 1).
+    """
+
+    home: Path
+    heartbeat_stale_after: float
+
+
+def _resolve_home(args) -> Path:
+    flag_home = getattr(args, "home", None)
+    if flag_home:
+        return Path(flag_home).expanduser()
+    env_home = os.environ.get(ENV_HOME)
+    if env_home:
+        return Path(env_home).expanduser()
+    return DEFAULT_HOME
+
+
+def _load_file_config(home: Path) -> dict:
+    config_path = home / "config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        # A malformed or unreadable config file is not fatal -- flags/env can still
+        # supply everything needed, and a missing base_url is reported on its own below.
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _resolve_heartbeat_stale_after(args, file_config: dict) -> float:
+    flag_value = getattr(args, "heartbeat_stale_after", None)
+    if flag_value is not None:
+        return float(flag_value)
+
+    env_value = os.environ.get(ENV_HEARTBEAT_STALE_AFTER)
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            pass  # an unparseable override is not fatal -- fall through to file/default
+
+    file_value = file_config.get("heartbeat_stale_after")
+    if file_value is not None:
+        try:
+            return float(file_value)
+        except (TypeError, ValueError):
+            pass
+
+    return DEFAULT_HEARTBEAT_STALE_AFTER
+
+
+def load_status_config(args) -> StatusConfig:
+    """Resolves just what `status` needs -- `home` and `heartbeat_stale_after` -- with
+    the same flag > env > `$KEEL_HOME/config.json` precedence as every other key, but
+    without `load()`'s `base_url` requirement (`status` must never exit for a missing
+    `base_url`; it has no use for one).
+    """
+    home = _resolve_home(args)
+    file_config = _load_file_config(home)
+    heartbeat_stale_after = _resolve_heartbeat_stale_after(args, file_config)
+    return StatusConfig(home=home, heartbeat_stale_after=heartbeat_stale_after)
+
+
+def load(args) -> RuntimeConfig:
+    """Build a RuntimeConfig from parsed CLI args, env vars, and the on-disk config file.
+
+    Exits with a one-line remedy (spec FR-026) when no source supplies `base_url`.
+    """
+    home = _resolve_home(args)
+    file_config = _load_file_config(home)
+
+    base_url = (
+        getattr(args, "base_url", None)
+        or os.environ.get(ENV_BASE_URL)
+        or file_config.get("base_url")
+    )
+    if not base_url:
+        raise SystemExit(
+            "keel connect: no base URL configured -- pass --base-url, set "
+            f"{ENV_BASE_URL}, or add \"base_url\" to {home / 'config.json'}"
+        )
+
+    executor = (
+        getattr(args, "executor", None)
+        or os.environ.get(ENV_EXECUTOR)
+        or file_config.get("executor")
+        or "claude-code"
+    )
+
+    credential_backend = (
+        getattr(args, "credential_backend", None)
+        or os.environ.get(ENV_CREDENTIAL_BACKEND)
+        or file_config.get("credential_backend")
+        or "auto"
+    )
+
+    open_browser = True
+    if getattr(args, "no_browser", False):
+        open_browser = False
+    elif file_config.get("open_browser") is False:
+        open_browser = False
+
+    heartbeat_stale_after = _resolve_heartbeat_stale_after(args, file_config)
+
+    return RuntimeConfig(
+        base_url=base_url,
+        executor=executor,
+        home=home,
+        credential_backend=credential_backend,
+        open_browser=open_browser,
+        heartbeat_stale_after=heartbeat_stale_after,
+    )
