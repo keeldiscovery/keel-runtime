@@ -176,10 +176,10 @@
               "ask": "Walk me through the last piece of software your team paid for.",
               "disconfirming": "What would make you insist on paying monthly instead?"
             },
-            "role": {"reuse": "A payroll manager"}
+            "role": {"reuse": "Someone who runs a payroll team"}
           }
         ],
-        "normalization_rationale": "Whoever signs off on spend would settle whether a budget exists at all, but nobody who fits that has been invited yet -- the payroll manager already in the room can speak to whether annual, upfront billing is one they'd accept, since they're the one who'd feel that model month to month."
+        "normalization_rationale": "Whoever signs off on spend settles whether a budget exists at all. Whether a year upfront is a model anyone would accept is something the person who runs the payroll team can speak to -- they are the one who has watched software invoices go through, or not."
       }
     }
   ],
@@ -247,16 +247,6 @@
                 "stance": "SUPPORTS"
               }
             ]
-          },
-          {
-            "assumptionId": "They'd pay annually, upfront",
-            "evidence": [
-              {
-                "statement": "We've never paid a software invoice before the quarter it covers.",
-                "claimType": "PAST_BEHAVIOR",
-                "stance": "CONTRADICTS"
-              }
-            ]
           }
         ]
       }
@@ -304,16 +294,6 @@
                 "stance": "SUPPORTS"
               }
             ]
-          },
-          {
-            "assumptionId": "They'd pay annually, upfront",
-            "evidence": [
-              {
-                "statement": "Anything annual goes to procurement, and that's a two-month conversation before anyone signs.",
-                "claimType": "CURRENT_WORKFLOW",
-                "stance": "CONTRADICTS"
-              }
-            ]
           }
         ]
       }
@@ -331,6 +311,16 @@
                 "stance": "SUPPORTS"
               }
             ]
+          },
+          {
+            "assumptionId": "They'd pay annually, upfront",
+            "evidence": [
+              {
+                "statement": "I'd expense it per run without blinking. Upfront, no.",
+                "claimType": "PURCHASE_BEHAVIOR",
+                "stance": "CONTRADICTS"
+              }
+            ]
           }
         ]
       }
@@ -345,7 +335,7 @@
           "When an exception turns up today, there is no place it gets written down.",
           "The payroll manager would take ownership if the tool assigned it to them.",
           "Their finance team is not already doing this for them.",
-          "They would pay a year upfront -- not holding up: two described the opposite.",
+          "They would pay a year upfront -- not holding up: one described the opposite.",
           "It costs them hours, not minutes -- people disagree: one described it happening, one described it not."
         ],
         "openDecisions": [
