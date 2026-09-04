@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-04
 
-**Status**: Draft — for the founder's review
+**Status**: Implemented; amendment FR-009..011 go (2026-09-04 afternoon)
 
 **Input**: the founder's direction of 2026-09-04 ("protect the system against adversarial prompt
 injection where the user could use the place where we enter the problem, solution, commercial for
@@ -97,6 +97,23 @@ prompt states the same rule and the two behaviours the design names: off-topic i
   three error mappings and the nonce properties. `tests/test_poller.py`: the envelope/request
   logs, the failure message rule, no-retry. `tests/test_response_validator.py` gains the FR-006
   keywords.
+
+- **FR-009** *(amendment, 2026-09-04, the founder's live run)* Defaults: `KEEL_JOB_BUDGET_USD`
+  1.00, `KEEL_JOB_MAX_TURNS` 6. A breakdown job legitimately spends $0.25 and three to five CLI
+  turns; the old 0.25/2 stopped two real jobs in a row.
+- **FR-010** *(amendment)* **The failure says which rule.** The executor runs the CLI with
+  `--output-format stream-json --verbose`, keeps the final `result` event as the envelope (same
+  shape as before), and remembers the last `tool_result` that begins "Output does not match
+  required schema" as `last_schema_error`. On `error_max_turns` the `/fail` message is
+  `LLM_UNAVAILABLE: the answer never fit its shape -- <last_schema_error, ≤ 200 chars>`; on
+  `error_max_budget_usd`, `LLM_UNAVAILABLE: the job cost more than $<cap>`. `envelope.json` keeps
+  the result event; a new `events.jsonl` per job keeps the stream for the referee.
+- **FR-011** *(amendment)* **One recovery pass.** When the first invocation ends on
+  `error_max_turns` with a `last_schema_error`, the executor runs the CLI once more with the same
+  prompt plus a final section: `RECOVERY -- your previous answer was refused: <error>. Answer again
+  with what you have; cut the named field to half its length; change nothing else.` Its turns and
+  cost count toward the same job; a second failure fails the job as FR-010 says. Never more than
+  one pass.
 
 ## Success Criteria
 

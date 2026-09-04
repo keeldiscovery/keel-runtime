@@ -95,3 +95,10 @@ runtime's posture, spec 001 FR-009). Gate: `python3 -m unittest discover -s test
   the "founder text" as off-topic to the framing task and asked a clarifying question
   naming what the box is for, exactly the design §L2/A5 behaviour. The per-job cwd
   (`$KEEL_HOME/jobs/probe-job-001/`) was confirmed empty both before and after the run.
+- [ ] T009 *(amendment)* Defaults 1.00 / 6 (FR-009); `tests/test_config.py`.
+- [ ] T010 *(amendment)* `stream-json` envelope + `last_schema_error` + the two failure messages +
+      `events.jsonl` (FR-010); `tests/test_executor.py` with a fake `claude` that streams a
+      refused attempt then success, and one that ends on max turns.
+- [ ] T011 *(amendment)* The recovery pass (FR-011) + tests: one pass only, the RECOVERY section
+      quotes the error, a second failure fails the job.
+- [ ] T012 Gate green; README; commit with the trailers; no push.
