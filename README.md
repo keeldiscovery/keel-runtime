@@ -124,8 +124,8 @@ discovery end to end without an LLM. See
 ## Dependencies
 
 The runtime's core runs on the Python standard library alone (`urllib.request`,
-`json`, `subprocess`, `dataclasses`, `webbrowser`, `argparse`) — the same posture as
-the served bridge script. Two optional accelerators are used only when importable,
+`json`, `subprocess`, `dataclasses`, `webbrowser`, `argparse`) — no third-party
+package is needed to connect. Two optional accelerators are used only when importable,
 never required:
 
 - `keyring` — used by `credential_store.py` for OS-native secret storage when the
