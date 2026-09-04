@@ -108,15 +108,15 @@ class ConfigPrecedenceTest(unittest.TestCase):
         config = config_module.load(self._args())
         self.assertEqual(config.script_path, "/env/script.json")
 
-    # spec 002-words-are-words FR-007 -----------------------------------------------
+    # spec 002-words-are-words FR-007, amended by FR-009 -----------------------------
 
-    def test_job_budget_usd_defaults_to_a_quarter_dollar(self):
+    def test_job_budget_usd_defaults_to_a_dollar(self):
         config = config_module.load(self._args(base_url="http://flag"))
-        self.assertEqual(config.job_budget_usd, 0.25)
+        self.assertEqual(config.job_budget_usd, 1.00)
 
-    def test_job_max_turns_defaults_to_two(self):
+    def test_job_max_turns_defaults_to_six(self):
         config = config_module.load(self._args(base_url="http://flag"))
-        self.assertEqual(config.job_max_turns, 2)
+        self.assertEqual(config.job_max_turns, 6)
 
     def test_job_budget_usd_env_wins_over_file(self):
         (self.home / "config.json").write_text(

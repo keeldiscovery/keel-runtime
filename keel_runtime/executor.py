@@ -226,6 +226,88 @@ def _reports_not_logged_in(text: str) -> bool:
     return "not logged in" in text.lower()
 
 
+# spec 002-words-are-words FR-010 (amendment): the CLI runs with `--output-format
+# stream-json --verbose` and prints one JSON object per line -- `system`, `assistant`,
+# `user`, `rate_limit_event`, `result` event types observed against Claude Code
+# 2.1.259. A refused structured-output attempt surfaces as a `user` event whose
+# `message.content[]` holds a `tool_result` item beginning with this exact prefix.
+_SCHEMA_ERROR_PREFIX = "Output does not match required schema"
+
+# spec FR-011 (amendment): the one recovery pass' extra prompt section, appended after
+# the whole rendered prompt (outside the KEEL-DATA fence -- this is the executor
+# talking to the model about the task, not source material).
+_RECOVERY_SECTION_TEMPLATE = (
+    "RECOVERY -- your previous answer was refused: {error}. Answer again with what you "
+    "have; cut the named field to half its length; change nothing else."
+)
+
+
+def _parse_stream_events(stdout: str) -> list:
+    """Parses `--output-format stream-json` stdout: one JSON object per line. A line
+    that isn't valid JSON (or isn't a JSON object) is skipped rather than failing the
+    whole parse -- the CLI's own stdout framing, not something a job can corrupt.
+    """
+    events = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict):
+            events.append(event)
+    return events
+
+
+def _last_result_event(events: list) -> dict | None:
+    """The final `result` event in the stream -- same fields as the old
+    `--output-format json` envelope (FR-010: kept as `last_envelope`, same shape).
+    """
+    result_event = None
+    for event in events:
+        if event.get("type") == "result":
+            result_event = event
+    return result_event
+
+
+def _tool_result_text(item: dict):
+    """A `tool_result` content item's text, whether `content` is a plain string (the
+    shape observed live) or a list of content blocks (the general Claude API shape).
+    """
+    content = item.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [block.get("text", "") for block in content if isinstance(block, dict)]
+        return "".join(parts)
+    return None
+
+
+def _last_schema_error(events: list) -> str | None:
+    """The last refused structured-output attempt across the stream (FR-010): a `user`
+    event's `tool_result` content beginning "Output does not match required schema",
+    with that prefix stripped. Updated on every match, so a later success in the same
+    stream doesn't erase an earlier refusal -- FR-011's recovery pass needs it, and a
+    job that eventually succeeded still shows how many attempts it took.
+    """
+    last = None
+    for event in events:
+        if event.get("type") != "user":
+            continue
+        content = (event.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_result":
+                continue
+            text = _tool_result_text(item)
+            if isinstance(text, str) and text.startswith(_SCHEMA_ERROR_PREFIX):
+                last = text[len(_SCHEMA_ERROR_PREFIX):].lstrip(":").strip()
+    return last
+
+
 class ClaudeCodeExecutor(Executor):
     """Invokes the `claude` CLI in a closed, tool-less, session-less shape.
 
@@ -235,9 +317,9 @@ class ClaudeCodeExecutor(Executor):
     `structured_output` -- never scraped from stdout -- and `is_error`/a missing
     `structured_output` map to the three US1 scenario-3 error codes (FR-003).
 
-    Exposes `last_envelope` and `last_request_sections` after each call so `poller`
-    can log them per job (FR-005) without this executor knowing anything about the
-    poller's file layout.
+    Exposes `last_envelope`, `last_request_sections`, `last_events` and
+    `last_schema_error` after each call so `poller` can log them per job (FR-005,
+    FR-010) without this executor knowing anything about the poller's file layout.
     """
 
     def __init__(
@@ -255,22 +337,11 @@ class ClaudeCodeExecutor(Executor):
         self.timeout_seconds = timeout_seconds
         self.last_envelope: dict | None = None
         self.last_request_sections: dict | None = None
+        self.last_events: list | None = None
+        self.last_schema_error: str | None = None
 
-    def execute(self, request: InferenceRequest) -> dict:
-        if shutil.which(self.binary) is None:
-            raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
-
-        sections = _prompt_sections(request)
-        self.last_request_sections = sections
-        prompt = _render_prompt(sections)
-
-        response_contract = request.request_payload.get("response_contract") or {}
-        envelope_schema = _build_envelope_schema(response_contract)
-
-        job_dir = self.home / "jobs" / request.job_id
-        job_dir.mkdir(parents=True, exist_ok=True)
-
-        argv = [
+    def _build_argv(self, envelope_schema: dict) -> list:
+        return [
             self.binary,
             "-p",
             "--tools",
@@ -284,13 +355,21 @@ class ClaudeCodeExecutor(Executor):
             "--max-budget-usd",
             str(self.budget_usd),
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--json-schema",
             json.dumps(envelope_schema),
             "--system-prompt",
             SYSTEM_PROMPT,
         ]
 
+    def _invoke(self, prompt: str, envelope_schema: dict, job_dir: Path):
+        """Runs the CLI once, parses its `stream-json` stdout, and returns
+        `(events, result_event, completed)`. `result_event` is `None` when the stream
+        never carried one (an older CLI without `--json-schema`, or unparseable
+        stdout) -- callers fall back on `completed.returncode`/`stderr`, as before.
+        """
+        argv = self._build_argv(envelope_schema)
         try:
             completed = subprocess.run(
                 argv,
@@ -308,28 +387,83 @@ class ClaudeCodeExecutor(Executor):
         except OSError as exc:
             raise ExecutorUnavailable(str(exc)) from exc
 
-        try:
-            envelope = json.loads(completed.stdout)
-        except json.JSONDecodeError:
-            envelope = None
+        events = _parse_stream_events(completed.stdout)
+        result_event = _last_result_event(events)
+        return events, result_event, completed
+
+    def execute(self, request: InferenceRequest) -> dict:
+        if shutil.which(self.binary) is None:
+            raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
+
+        sections = _prompt_sections(request)
+        self.last_request_sections = sections
+        prompt = _render_prompt(sections)
+
+        response_contract = request.request_payload.get("response_contract") or {}
+        envelope_schema = _build_envelope_schema(response_contract)
+
+        job_dir = self.home / "jobs" / request.job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        events, result_event, completed = self._invoke(prompt, envelope_schema, job_dir)
+        all_events = list(events)
+
+        # spec FR-011: one recovery pass, and only when the first invocation ended on
+        # `error_max_turns` *and* a schema refusal was actually seen -- an
+        # `error_max_turns` with no refusal at all (e.g. the model just never
+        # answered) has nothing for the recovery prompt to quote.
+        if result_event is not None and result_event.get("subtype") == "error_max_turns":
+            schema_error_so_far = _last_schema_error(all_events)
+            if schema_error_so_far:
+                recovery_prompt = prompt + "\n\n" + _RECOVERY_SECTION_TEMPLATE.format(
+                    error=schema_error_so_far
+                )
+                events2, result_event2, completed2 = self._invoke(
+                    recovery_prompt, envelope_schema, job_dir
+                )
+                all_events.extend(events2)
+                completed = completed2
+                if result_event2 is not None:
+                    merged = dict(result_event2)
+                    merged["num_turns"] = (result_event.get("num_turns") or 0) + (
+                        result_event2.get("num_turns") or 0
+                    )
+                    merged["total_cost_usd"] = (result_event.get("total_cost_usd") or 0) + (
+                        result_event2.get("total_cost_usd") or 0
+                    )
+                    merged["recovery_pass"] = True
+                    result_event = merged
+                else:
+                    result_event = None
+
+        self.last_events = all_events
+        self.last_schema_error = _last_schema_error(all_events)
 
         self.last_envelope = (
-            envelope
-            if envelope is not None
+            result_event
+            if result_event is not None
             else {"_unparsed_stdout": True, "returncode": completed.returncode}
         )
 
-        if envelope is None:
+        if result_event is None:
             # Edge case: an older `claude` without `--json-schema` exits non-zero with
             # plain text, not an envelope -- LLM_UNAVAILABLE, stderr in the message.
             if completed.returncode != 0:
                 raise ExecutorUnavailable(
                     completed.stderr.strip() or f"'{self.binary}' exited {completed.returncode}"
                 )
-            raise InvalidResponse("executor did not return a JSON envelope")
+            raise InvalidResponse("executor did not return a result event")
 
-        if envelope.get("is_error"):
-            result_text = envelope.get("result")
+        if result_event.get("is_error"):
+            subtype = result_event.get("subtype")
+            if subtype == "error_max_turns":
+                raise ExecutorUnavailable(
+                    "the answer never fit its shape -- "
+                    f"{self.last_schema_error or 'no attempt was ever accepted'}"
+                )
+            if subtype == "error_max_budget_usd":
+                raise ExecutorUnavailable(f"the job cost more than ${self.budget_usd}")
+            result_text = result_event.get("result")
             if isinstance(result_text, str) and _reports_not_logged_in(result_text):
                 raise ExecutorAuthFailure(result_text)
             message = (
@@ -339,7 +473,7 @@ class ClaudeCodeExecutor(Executor):
             )
             raise ExecutorUnavailable(message)
 
-        structured_output = envelope.get("structured_output")
+        structured_output = result_event.get("structured_output")
         if structured_output is None:
             raise InvalidResponse("executor envelope has no structured_output")
 

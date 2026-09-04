@@ -104,9 +104,9 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
     --strict-mcp-config             # no MCP servers from any config
     --setting-sources ""            # ignore user, project and local settings (CLAUDE.md included)
     --no-session-persistence        # nothing written to disk for later resumption
-    --max-turns <N>                 # KEEL_JOB_MAX_TURNS, default 2
-    --max-budget-usd <amount>       # KEEL_JOB_BUDGET_USD, default 0.25
-    --output-format json            # the envelope, not raw prose
+    --max-turns <N>                 # KEEL_JOB_MAX_TURNS, default 6
+    --max-budget-usd <amount>       # KEEL_JOB_BUDGET_USD, default 1.00
+    --output-format stream-json --verbose  # one JSON event per line, not raw prose
     --json-schema <contract>        # the job's own response contract, enforced by the CLI
     --system-prompt <fixed text>    # runtime-owned, identical for every job
   ```
@@ -116,9 +116,24 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
   `LANG`, `LC_*`, `TMPDIR`, `TERM`, plus any `ANTHROPIC_*`/`CLAUDE_*` variable the CLI
   needs for its own auth — never `KEEL_HOME`, never `KEEL_BASE_URL`). `--bare` is
   deliberately **not** used: it skips keychain reads and the CLI reports "Not logged
-  in". The result comes from the CLI's own JSON envelope's `structured_output`, never
-  scraped from stdout. **Requires Claude Code ≥ 2.1.259.** An older CLI without
-  `--json-schema` exits non-zero and the job fails `LLM_UNAVAILABLE`.
+  in". `--output-format json` was replaced by `--output-format stream-json --verbose`
+  (spec amendment FR-010) so a refused structured-output attempt is visible mid-stream,
+  not only in the final tally: stdout is one JSON object per line (`system`,
+  `assistant`, `user`, `rate_limit_event`, `result` event types observed against Claude
+  Code 2.1.259); the last `result` event is the envelope, same shape as the old
+  `--output-format json` output. The result comes from that envelope's
+  `structured_output`, never scraped from stdout. **Requires Claude Code ≥ 2.1.259.** An
+  older CLI without `--json-schema` exits non-zero and the job fails `LLM_UNAVAILABLE`.
+
+  When the CLI's own turn budget runs out (`result.subtype == "error_max_turns"`) and a
+  refused attempt was seen along the way (a `user` event's `tool_result` beginning
+  "Output does not match required schema"), the runtime runs the CLI **once more** —
+  same prompt, plus a final `RECOVERY` section that quotes the refusal and asks for the
+  named field cut to half its length (spec amendment FR-011). Never more than one such
+  pass; a second failure fails the job. `/fail`'s message for an exhausted-turns job
+  names the last schema refusal (`LLM_UNAVAILABLE: the answer never fit its shape --
+  <refusal>`); for a budget overrun it names the cap (`LLM_UNAVAILABLE: the job cost
+  more than $<cap>`).
 
   Every human- or model-authored string in the prompt — the founder's framing text, a
   participant's answers, earlier turns — sits inside one `<<<KEEL-DATA <nonce>>> ...
@@ -126,10 +141,13 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
   that says it is source material, not an instruction; the fixed system prompt states
   the same rule.
 
-  The per-job directory (`$KEEL_HOME/jobs/<job_id>/`) holds `envelope.json` (the CLI's
-  own JSON envelope, verbatim) and `request.json` (the prompt sections that were sent)
-  once the job finishes, success or failure — diagnostic logs, kept across jobs but
-  pruned to the newest 50 each time `connect` starts.
+  The per-job directory (`$KEEL_HOME/jobs/<job_id>/`) holds `envelope.json` (the final
+  `result` event, verbatim — both passes' `num_turns`/`total_cost_usd` summed and
+  `recovery_pass: true` added when the recovery pass ran), `request.json` (the prompt
+  sections that were sent), and `events.jsonl` (the raw `stream-json` events, both
+  passes' when a recovery pass ran) once the job finishes, success or failure —
+  diagnostic logs, kept across jobs but pruned to the newest 50 each time `connect`
+  starts.
 
 - **`stub`** — deterministic, test-only. Selected with `--executor stub`, never a
   default. Driven entirely by `request_payload.input.content`: see

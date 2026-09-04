@@ -1,11 +1,13 @@
 """Tests for `build_prompt` and `ClaudeCodeExecutor` (spec 002-words-are-words FR-001..004,
-FR-008).
+FR-008, and the FR-009..011 amendment).
 
 `ClaudeCodeExecutor` is exercised against a fake `claude` script placed first on `PATH`
-for the duration of each test -- it records its own argv, stdin, cwd and env to a JSON
-file alongside itself, and prints back whatever canned envelope the test configured, so
-the assertions below never touch the real CLI (that happens exactly once, live, per the
-spec's SC-003, recorded in tasks.md).
+for the duration of each test -- it records each invocation's argv, stdin, cwd and env
+to a JSON file alongside itself, and prints back whatever canned `stream-json` events
+the test queued for that invocation (one queued response per call; the last one repeats
+if the executor calls more times than were queued), so the assertions below never touch
+the real CLI (that happens exactly once, live, per the spec's SC-003, recorded in
+tasks.md).
 """
 from __future__ import annotations
 
@@ -30,27 +32,40 @@ from keel_runtime.executor import (
 
 _NONCE_OPEN_RE = re.compile(r"<<<KEEL-DATA ([0-9a-f]+)>>>")
 
-# A minimal fake `claude`: records what it was invoked with, then answers from a sibling
-# `response.json` the test writes before each call. Both files live next to the script
-# itself, so no data needs to travel through the child's (allow-listed) environment.
+# A minimal fake `claude`: records what each invocation was called with (appended to a
+# shared `records.json` list, so a test that triggers the FR-011 recovery pass can see
+# both calls) and answers from a `responses.json` list -- one queued response consumed
+# per invocation, the last one repeating if invoked more times than queued. Both files
+# live next to the script itself, so no data needs to travel through the child's
+# (allow-listed) environment.
 _FAKE_CLAUDE_SOURCE = '''#!/usr/bin/env python3
 import json
 import os
 import sys
 
 here = os.path.dirname(os.path.abspath(__file__))
+records_path = os.path.join(here, "records.json")
 
-record = {
+if os.path.exists(records_path):
+    with open(records_path) as handle:
+        records = json.load(handle)
+else:
+    records = []
+
+records.append({
     "argv": sys.argv[1:],
     "stdin": sys.stdin.read(),
     "cwd": os.getcwd(),
     "env": dict(os.environ),
-}
-with open(os.path.join(here, "record.json"), "w") as handle:
-    json.dump(record, handle)
+})
+with open(records_path, "w") as handle:
+    json.dump(records, handle)
 
-with open(os.path.join(here, "response.json")) as handle:
-    response = json.load(handle)
+with open(os.path.join(here, "responses.json")) as handle:
+    responses = json.load(handle)
+
+index = min(len(records) - 1, len(responses) - 1)
+response = responses[index]
 
 sys.stdout.write(response.get("stdout", ""))
 sys.stderr.write(response.get("stderr", ""))
@@ -171,9 +186,10 @@ class SystemPromptTest(unittest.TestCase):
         self.assertIn("file path", SYSTEM_PROMPT)
 
 
-class ClaudeCodeExecutorTest(unittest.TestCase):
-    """Spec FR-001, FR-002, FR-003, FR-008: the closed argv, stdin prompt, per-job cwd,
-    env allow-list, envelope parsing and the three error mappings.
+class _ExecutorTestBase(unittest.TestCase):
+    """Shared fake-`claude` plumbing and event/envelope builders. Not itself a test
+    case with test methods -- `ClaudeCodeExecutorTest`, `StreamJsonParsingTest` and
+    `RecoveryPassTest` below each subclass this for the fixture, not for shared tests.
     """
 
     def setUp(self):
@@ -212,14 +228,69 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
                 os.environ[key] = value
         self._tmp.cleanup()
 
+    # -- fake-`claude` plumbing --------------------------------------------------
+
+    def _set_raw_responses(self, responses: list):
+        """`responses` is a list of `{"stdout", "stderr", "returncode"}` dicts, one
+        per invocation the executor is expected to make (the last repeats if it makes
+        more calls than were queued).
+        """
+        (self.bin_dir / "responses.json").write_text(json.dumps(responses))
+
     def _set_response(self, stdout="", stderr="", returncode=0):
-        (self.bin_dir / "response.json").write_text(
-            json.dumps({"stdout": stdout, "stderr": stderr, "returncode": returncode})
-        )
+        self._set_raw_responses([{"stdout": stdout, "stderr": stderr, "returncode": returncode}])
+
+    def _set_stream(self, *events, stderr="", returncode=0):
+        """Queues a single invocation whose stdout is `events` rendered one JSON
+        object per line, `stream-json` style.
+        """
+        self._set_response(stdout=_stream(*events), stderr=stderr, returncode=returncode)
+
+    def _set_streams(self, *event_lists):
+        """Queues one invocation per entry in `event_lists` -- for FR-011 recovery-pass
+        tests, where the executor calls the CLI twice.
+        """
+        self._set_raw_responses([{"stdout": _stream(*events), "stderr": "", "returncode": 0}
+                                  for events in event_lists])
+
+    def _records(self) -> list:
+        return json.loads((self.bin_dir / "records.json").read_text())
 
     def _record(self) -> dict:
-        return json.loads((self.bin_dir / "record.json").read_text())
+        """The first (and, for most tests, only) invocation's record."""
+        return self._records()[0]
 
+    # -- FR-010 event/envelope builders -------------------------------------------
+
+    def _result_event(
+        self,
+        structured_output=None,
+        is_error=False,
+        subtype="success",
+        result=None,
+        num_turns=2,
+        total_cost_usd=0.01,
+        permission_denials=None,
+        recovery_pass=None,
+    ):
+        event = {
+            "type": "result",
+            "subtype": subtype,
+            "is_error": is_error,
+            "num_turns": num_turns,
+            "permission_denials": permission_denials if permission_denials is not None else [],
+            "total_cost_usd": total_cost_usd,
+        }
+        if structured_output is not None:
+            event["structured_output"] = structured_output
+        if result is not None:
+            event["result"] = result
+        if recovery_pass is not None:
+            event["recovery_pass"] = recovery_pass
+        return event
+
+    # kept for the handful of assertions that still want a bare envelope dict shape
+    # (not run through the fake CLI) -- mirrors _result_event without the "type" key.
     def _envelope(self, structured_output, is_error=False, result=None, num_turns=2):
         return {
             "is_error": is_error,
@@ -230,7 +301,26 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
             "total_cost_usd": 0.01,
         }
 
-    # -- FR-001: the exact closed argv, prompt on stdin ------------------------------
+    def _refusal_event(self, detail):
+        return {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "content": f"Output does not match required schema: {detail}",
+                    }
+                ]
+            },
+        }
+
+class ClaudeCodeExecutorTest(_ExecutorTestBase):
+    """Spec FR-001, FR-002, FR-003, FR-008: the closed argv, stdin prompt, per-job cwd,
+    env allow-list, envelope parsing and the three error mappings -- now over the
+    `stream-json` wire format (FR-010).
+    """
+
+    # -- FR-001/FR-010: the closed argv, stream-json output, prompt on stdin ---------
 
     def test_argv_is_exactly_the_closed_shape(self):
         response_contract = {
@@ -241,8 +331,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
                 "properties": {"statement": {"type": "string", "maxLength": 400}},
             },
         }
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {"statement": "ok"}})
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {"statement": "ok"}}))
 
         request = _request(response_contract=response_contract)
         self.executor.execute(request)
@@ -283,7 +372,8 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
             "--max-budget-usd",
             "0.3",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--json-schema",
             json.dumps(expected_schema),
             "--system-prompt",
@@ -292,8 +382,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
         self.assertEqual(record["argv"], expected_argv)
 
     def test_prompt_is_sent_on_stdin_never_in_argv(self):
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {}})
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
         request = _request(instruction="a very particular unlikely instruction string")
         self.executor.execute(request)
 
@@ -303,8 +392,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
             self.assertNotIn("a very particular unlikely instruction string", arg)
 
     def test_stdin_prompt_matches_last_request_sections_nonce(self):
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {}})
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
         self.executor.execute(_request())
 
         record = self._record()
@@ -315,8 +403,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
     # -- FR-002: per-job cwd, env allow-list -----------------------------------------
 
     def test_cwd_is_an_empty_per_job_directory_under_keel_home_jobs(self):
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {}})
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
         request = _request(job_id="job-xyz")
         self.executor.execute(request)
 
@@ -327,8 +414,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
         self.assertEqual(list(expected_dir.iterdir()), [])
 
     def test_env_is_allow_listed_and_excludes_keel_home_and_base_url(self):
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {}})
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
         self.executor.execute(_request())
 
         record = self._record()
@@ -356,30 +442,34 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
 
     def test_structured_output_returned_when_not_error(self):
         structured = {"outcome": "COMPLETED", "result": {"statement": "hi"}}
-        self._set_response(stdout=json.dumps(self._envelope(structured)))
+        self._set_stream(self._result_event(structured))
         response = self.executor.execute(_request())
         self.assertEqual(response, structured)
 
     def test_is_error_with_not_logged_in_raises_auth_failure(self):
-        envelope = self._envelope(None, is_error=True, result="Not logged in.")
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error", result="Not logged in.")
+        )
         with self.assertRaises(ExecutorAuthFailure):
             self.executor.execute(_request())
 
     def test_is_error_with_other_reason_raises_unavailable(self):
-        envelope = self._envelope(None, is_error=True, result="budget exceeded")
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error", result="something broke")
+        )
         with self.assertRaises(ExecutorUnavailable):
             self.executor.execute(_request())
 
     def test_missing_structured_output_raises_invalid_response(self):
-        envelope = {
+        event = {
+            "type": "result",
+            "subtype": "success",
             "is_error": False,
             "num_turns": 1,
             "permission_denials": [],
             "total_cost_usd": 0.0,
         }
-        self._set_response(stdout=json.dumps(envelope))
+        self._set_stream(event)
         with self.assertRaises(InvalidResponse):
             self.executor.execute(_request())
 
@@ -395,7 +485,7 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
             executor.execute(_request())
 
     def test_timeout_raises_executor_timeout(self):
-        self._set_response(stdout=json.dumps(self._envelope({"outcome": "COMPLETED", "result": {}})))
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
         executor = ClaudeCodeExecutor(
             binary="claude", home=self.home, budget_usd=0.3, max_turns=4, timeout_seconds=0.0
         )
@@ -405,19 +495,183 @@ class ClaudeCodeExecutorTest(unittest.TestCase):
     # -- FR-005 plumbing: last_envelope / last_request_sections -----------------------
 
     def test_last_envelope_and_sections_recorded_on_success(self):
-        envelope = self._envelope({"outcome": "COMPLETED", "result": {}})
-        self._set_response(stdout=json.dumps(envelope))
+        event = self._result_event({"outcome": "COMPLETED", "result": {}})
+        self._set_stream(event)
         self.executor.execute(_request())
-        self.assertEqual(self.executor.last_envelope, envelope)
+        self.assertEqual(self.executor.last_envelope, event)
         self.assertIsNotNone(self.executor.last_request_sections)
 
     def test_last_envelope_and_sections_recorded_on_failure(self):
-        envelope = self._envelope(None, is_error=True, result="budget exceeded")
-        self._set_response(stdout=json.dumps(envelope))
+        event = self._result_event(None, is_error=True, subtype="error", result="budget exceeded")
+        self._set_stream(event)
         with self.assertRaises(ExecutorUnavailable):
             self.executor.execute(_request())
-        self.assertEqual(self.executor.last_envelope, envelope)
+        self.assertEqual(self.executor.last_envelope, event)
         self.assertIsNotNone(self.executor.last_request_sections)
+
+
+class StreamJsonParsingTest(_ExecutorTestBase):
+    """Spec FR-010: parsing a multi-event `stream-json` stdout, `last_events`,
+    `last_schema_error`, and the two new failure messages.
+    """
+
+    def test_last_events_collects_the_whole_stream_in_order(self):
+        system_event = {"type": "system", "subtype": "init"}
+        assistant_event = {"type": "assistant", "message": {"content": []}}
+        result = self._result_event({"outcome": "COMPLETED", "result": {}})
+        self._set_stream(system_event, assistant_event, result)
+        self.executor.execute(_request())
+        self.assertEqual(self.executor.last_events, [system_event, assistant_event, result])
+
+    def test_non_json_and_blank_lines_in_stream_are_skipped(self):
+        result = self._result_event({"outcome": "COMPLETED", "result": {}})
+        raw = "\n" + json.dumps({"type": "system"}) + "\nnot json at all\n" + json.dumps(result) + "\n"
+        self._set_response(stdout=raw)
+        self.executor.execute(_request())
+        self.assertEqual(self.executor.last_events, [{"type": "system"}, result])
+
+    def test_refused_then_success_in_one_stream_still_succeeds_and_records_schema_error(self):
+        """The founder's live shape: one or more refused structured-output attempts
+        followed by a success, all inside a single CLI invocation.
+        """
+        refusal1 = self._refusal_event(
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 704)"
+        )
+        refusal2 = self._refusal_event(
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 640)"
+        )
+        success = self._result_event(
+            {"outcome": "COMPLETED", "result": {"statement": "ok"}}, num_turns=5, total_cost_usd=0.38
+        )
+        self._set_stream(refusal1, refusal2, success)
+
+        response = self.executor.execute(_request())
+
+        self.assertEqual(response, {"outcome": "COMPLETED", "result": {"statement": "ok"}})
+        self.assertEqual(
+            self.executor.last_schema_error,
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 640)",
+        )
+        self.assertEqual(len(self._records()), 1)  # success -- no recovery pass
+
+    def test_last_schema_error_none_when_no_refusal_seen(self):
+        self._set_stream(self._result_event({"outcome": "COMPLETED", "result": {}}))
+        self.executor.execute(_request())
+        self.assertIsNone(self.executor.last_schema_error)
+
+    def test_error_max_turns_without_schema_error_message(self):
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error_max_turns")
+        )
+        with self.assertRaises(ExecutorUnavailable) as ctx:
+            self.executor.execute(_request())
+        self.assertEqual(
+            str(ctx.exception),
+            "the answer never fit its shape -- no attempt was ever accepted",
+        )
+        # no schema error was ever seen -> nothing to quote in a recovery pass.
+        self.assertEqual(len(self._records()), 1)
+
+    def test_error_max_budget_usd_message_names_the_cap(self):
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error_max_budget_usd")
+        )
+        with self.assertRaises(ExecutorUnavailable) as ctx:
+            self.executor.execute(_request())
+        self.assertEqual(str(ctx.exception), "the job cost more than $0.3")
+
+    def test_other_error_reason_still_maps_as_before(self):
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error", result="something else broke")
+        )
+        with self.assertRaises(ExecutorUnavailable) as ctx:
+            self.executor.execute(_request())
+        self.assertEqual(str(ctx.exception), "something else broke")
+
+
+class RecoveryPassTest(_ExecutorTestBase):
+    """Spec FR-011: one recovery pass when the first invocation ends on
+    `error_max_turns` with a schema refusal seen.
+    """
+
+    def test_recovery_pass_runs_once_and_succeeds(self):
+        refusal = self._refusal_event(
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 704)"
+        )
+        first = self._result_event(None, is_error=True, subtype="error_max_turns", num_turns=4, total_cost_usd=0.20)
+        second_refusal = self._refusal_event(
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 320)"
+        )
+        second = self._result_event(
+            {"outcome": "COMPLETED", "result": {"statement": "ok"}}, num_turns=1, total_cost_usd=0.05
+        )
+        self._set_streams([refusal, first], [second_refusal, second])
+
+        response = self.executor.execute(_request())
+
+        self.assertEqual(response, {"outcome": "COMPLETED", "result": {"statement": "ok"}})
+        records = self._records()
+        self.assertEqual(len(records), 2)
+
+        # the recovery prompt is the original prompt plus a final RECOVERY section
+        # quoting the exact schema error from the first pass.
+        recovery_stdin = records[1]["stdin"]
+        self.assertIn(records[0]["stdin"], recovery_stdin)
+        self.assertIn(
+            "RECOVERY -- your previous answer was refused: "
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 704).",
+            recovery_stdin,
+        )
+        self.assertIn("cut the named field to half its length", recovery_stdin)
+        self.assertIn("change nothing else", recovery_stdin)
+
+        envelope = self.executor.last_envelope
+        self.assertTrue(envelope["recovery_pass"])
+        self.assertEqual(envelope["num_turns"], 5)  # 4 + 1
+        self.assertAlmostEqual(envelope["total_cost_usd"], 0.25)  # 0.20 + 0.05
+
+        # events.jsonl carries both passes' events, in order.
+        self.assertEqual(
+            self.executor.last_events,
+            [refusal, first, second_refusal, second],
+        )
+        # the last schema error across the whole job, not just the first pass.
+        self.assertEqual(
+            self.executor.last_schema_error,
+            "/result/normalization_rationale: must NOT have more than 600 characters (got 320)",
+        )
+
+    def test_second_failure_still_only_one_recovery_pass_and_fails_as_fr010(self):
+        refusal1 = self._refusal_event("too long (got 704)")
+        first = self._result_event(None, is_error=True, subtype="error_max_turns", num_turns=4, total_cost_usd=0.20)
+        refusal2 = self._refusal_event("still too long (got 650)")
+        second = self._result_event(None, is_error=True, subtype="error_max_turns", num_turns=4, total_cost_usd=0.20)
+        self._set_streams([refusal1, first], [refusal2, second])
+
+        with self.assertRaises(ExecutorUnavailable) as ctx:
+            self.executor.execute(_request())
+
+        # never a third invocation.
+        self.assertEqual(len(self._records()), 2)
+        self.assertEqual(
+            str(ctx.exception), "the answer never fit its shape -- still too long (got 650)"
+        )
+        self.assertTrue(self.executor.last_envelope["recovery_pass"])
+        self.assertEqual(self.executor.last_envelope["num_turns"], 8)
+        self.assertAlmostEqual(self.executor.last_envelope["total_cost_usd"], 0.40)
+
+    def test_no_recovery_pass_when_first_failure_is_not_max_turns(self):
+        self._set_stream(
+            self._result_event(None, is_error=True, subtype="error_max_budget_usd")
+        )
+        with self.assertRaises(ExecutorUnavailable):
+            self.executor.execute(_request())
+        self.assertEqual(len(self._records()), 1)
+
+
+def _stream(*events) -> str:
+    """Renders `events` as `stream-json` stdout: one JSON object per line."""
+    return "".join(json.dumps(event) + "\n" for event in events)
 
 
 if __name__ == "__main__":

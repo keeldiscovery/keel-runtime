@@ -99,12 +99,15 @@ def _write_heartbeat(state, config) -> None:
 
 
 def _write_job_logs(config, executor: Executor, job_id: str) -> None:
-    # spec FR-005: written for whichever executor exposes them -- ClaudeCodeExecutor
-    # does, the scripted and stub executors don't, and this is a no-op for those (they
-    # are untouched by this spec).
+    # spec FR-005, extended by FR-010 (amendment): written for whichever executor
+    # exposes them -- ClaudeCodeExecutor does, the scripted and stub executors don't,
+    # and this is a no-op for those (they are untouched by this spec). `events.jsonl`
+    # holds the raw `stream-json` events (both passes' when FR-011's recovery pass ran)
+    # for the referee, beside `envelope.json`'s final `result` event.
     envelope = getattr(executor, "last_envelope", None)
     sections = getattr(executor, "last_request_sections", None)
-    if envelope is None and sections is None:
+    events = getattr(executor, "last_events", None)
+    if envelope is None and sections is None and events is None:
         return
     job_dir = config.home / "jobs" / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +115,12 @@ def _write_job_logs(config, executor: Executor, job_id: str) -> None:
         (job_dir / "envelope.json").write_text(json.dumps(envelope, indent=2))
     if sections is not None:
         (job_dir / "request.json").write_text(json.dumps(sections, indent=2, default=str))
+    if events is not None:
+        lines = [json.dumps(event) for event in events]
+        content = "\n".join(lines)
+        if lines:
+            content += "\n"
+        (job_dir / "events.jsonl").write_text(content)
 
 
 def _handle_job(client: CloudClient, state, executor: Executor, job: dict, config) -> None:
