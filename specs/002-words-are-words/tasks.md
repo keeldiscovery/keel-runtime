@@ -95,10 +95,69 @@ runtime's posture, spec 001 FR-009). Gate: `python3 -m unittest discover -s test
   the "founder text" as off-topic to the framing task and asked a clarifying question
   naming what the box is for, exactly the design §L2/A5 behaviour. The per-job cwd
   (`$KEEL_HOME/jobs/probe-job-001/`) was confirmed empty both before and after the run.
-- [ ] T009 *(amendment)* Defaults 1.00 / 6 (FR-009); `tests/test_config.py`.
-- [ ] T010 *(amendment)* `stream-json` envelope + `last_schema_error` + the two failure messages +
+- [x] T009 *(amendment)* Defaults 1.00 / 6 (FR-009); `tests/test_config.py`.
+- [x] T010 *(amendment)* `stream-json` envelope + `last_schema_error` + the two failure messages +
       `events.jsonl` (FR-010); `tests/test_executor.py` with a fake `claude` that streams a
       refused attempt then success, and one that ends on max turns.
-- [ ] T011 *(amendment)* The recovery pass (FR-011) + tests: one pass only, the RECOVERY section
+- [x] T011 *(amendment)* The recovery pass (FR-011) + tests: one pass only, the RECOVERY section
       quotes the error, a second failure fails the job.
-- [ ] T012 Gate green; README; commit with the trailers; no push.
+- [x] T012 Gate green; README; commit with the trailers; no push.
+
+- **The fake `claude` recorder script needed a second dimension.** T006's original
+  fake `claude` recorded one invocation and answered from one `response.json`; FR-011's
+  recovery pass calls the CLI a second time with a different prompt and (in the tests
+  that exercise it) a different canned answer. `tests/test_executor.py`'s fake `claude`
+  now appends each invocation's record to a shared `records.json` list and answers from
+  a `responses.json` list (one queued response consumed per call, the last repeating if
+  the executor calls more times than were queued) -- every FR-001..008 test still queues
+  exactly one response and reads `records()[0]`, so nothing about their assertions
+  changed shape, only the plumbing underneath.
+
+- **`last_schema_error` is computed once, over the whole combined stream, not
+  per-pass.** Rather than threading a schema-error value through both `_invoke` calls
+  and deciding which one "wins", `execute()` concatenates both passes' events into
+  `self.last_events` and calls `_last_schema_error` once at the end over that combined
+  list. This gives the right answer for both directions for free: a job that succeeds
+  after a mid-stream refusal still reports that refusal (last one before success), and
+  a recovery pass that introduces a *new* refusal naturally overrides the first pass's,
+  since events are scanned in order and the last match wins.
+
+- **The recovery trigger is "`error_max_turns` *and* a schema refusal was actually
+  seen"**, not "`error_max_turns` alone" -- FR-011 says the recovery prompt "quotes"
+  the error, which needs one to quote. An `error_max_turns` with no refusal ever seen
+  (e.g. the model just never produced *any* attempt) has nothing to recover *from* in
+  the sense the amendment describes, so it fails immediately via the FR-010 message's
+  own fallback text, `"no attempt was ever accepted"`, without spending a second CLI
+  invocation. Tested (`test_error_max_turns_without_schema_error_message`).
+
+- **The merged envelope on a second-pass failure still carries `recovery_pass: true`
+  and summed `num_turns`/`total_cost_usd`.** The spec's FR-011 line ("a second failure
+  raises as FR-010 says") only states the raised exception's message rule; it doesn't
+  say whether the *envelope* kept for logging drops the merge on failure. Read literally
+  ("sum both passes' num_turns and total_cost_usd into the envelope you keep... a
+  second failure raises as FR-010 says" -- one sentence, not two rules), the merge
+  always happens once a recovery pass ran, success or failure; only the *raised
+  exception's message* is decided by FR-010's own mapping applied to the merged
+  envelope's `subtype`/`is_error`. Tested
+  (`test_second_failure_still_only_one_recovery_pass_and_fails_as_fr010`).
+
+- **Live probe (amendment), this machine, Claude Code 2.1.260, run through the
+  finished `ClaudeCodeExecutor.execute()`:** a `PROBLEM_FRAME`-shaped request
+  (`completed_result_schema` with `statement` capped at `maxLength: 120`) whose
+  `input.content` (the founder text) was five sentences (~850 characters) describing a
+  payroll-reconciliation problem in detail -- long enough to tempt a longer statement
+  than the cap allows. Ran with the new defaults (`budget_usd=1.00`, `max_turns=6`).
+  Envelope: `subtype: "success"`, `is_error: false`, `num_turns: 2`,
+  `total_cost_usd: 0.044327`, `recovery_pass` absent (no recovery pass needed),
+  `last_schema_error: None` (the model's first attempt already fit the 120-char cap --
+  no refused attempt appeared in the stream), 12 stream events total. Result:
+  `{"outcome": "COMPLETED", "result": {"statement": "Our HR coordinator spends two days
+  per payroll cycle reconciling three systems that disagree; errors surface too late."}}`
+  (118 chars, under the cap). This run did not happen to exercise the FR-011 recovery
+  path live (the model fit the cap on its own first attempt) -- FR-011's recovery pass
+  itself is covered by the fake-`claude` tests in `tests/test_executor.py`'s
+  `RecoveryPassTest` (`test_recovery_pass_runs_once_and_succeeds`,
+  `test_second_failure_still_only_one_recovery_pass_and_fails_as_fr010`), which record
+  the exact two-invocation shape (`records.json` length 2, the second invocation's
+  stdin containing the original prompt plus the `RECOVERY --` section quoting the
+  first pass's schema error) that a live max-turns-with-refusal run would also produce.

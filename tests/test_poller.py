@@ -1,9 +1,11 @@
-"""Tests for `keel_runtime.poller` (spec 002-words-are-words FR-005, FR-008).
+"""Tests for `keel_runtime.poller` (spec 002-words-are-words FR-005, FR-008, and the
+FR-010 amendment).
 
-Covers: the per-job `envelope.json`/`request.json` logs (written when the executor
-exposes `last_envelope`/`last_request_sections`, a no-op for one that doesn't, e.g. the
-scripted/stub executors), the `/fail` message shape (`<code>: <=200 chars>`, never
-model output), no-retry on failure, and pruning job directories to the newest 50.
+Covers: the per-job `envelope.json`/`request.json`/`events.jsonl` logs (written when
+the executor exposes `last_envelope`/`last_request_sections`/`last_events`, a no-op for
+one that doesn't, e.g. the scripted/stub executors), the `/fail` message shape
+(`<code>: <=200 chars>`, never model output), no-retry on failure, and pruning job
+directories to the newest 50.
 """
 from __future__ import annotations
 
@@ -39,12 +41,13 @@ class _FakeExecutor:
     """
 
     def __init__(self, response=None, exception=None, last_envelope=None,
-                 last_request_sections=None, expose_logs=True):
+                 last_request_sections=None, last_events=None, expose_logs=True):
         self._response = response
         self._exception = exception
         if expose_logs:
             self.last_envelope = last_envelope
             self.last_request_sections = last_request_sections
+            self.last_events = last_events
 
     def execute(self, request):
         if self._exception is not None:
@@ -119,6 +122,40 @@ class HandleJobLoggingTest(unittest.TestCase):
         job_dir = self._job_dir()
         self.assertEqual(json.loads((job_dir / "envelope.json").read_text()), envelope)
         self.assertEqual(json.loads((job_dir / "request.json").read_text()), sections)
+
+    def test_writes_events_jsonl_beside_envelope_json(self):
+        envelope = {"is_error": False, "structured_output": {"outcome": "COMPLETED", "result": {"x": "ok"}}}
+        sections = {"nonce": "abc123", "task": "do it"}
+        events = [
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": []}},
+            {"type": "result", "is_error": False},
+        ]
+        executor = _FakeExecutor(
+            response={"outcome": "COMPLETED", "result": {"x": "ok"}},
+            last_envelope=envelope,
+            last_request_sections=sections,
+            last_events=events,
+        )
+        _handle_job(self.client, self.state, executor, _job(), self.config)
+
+        job_dir = self._job_dir()
+        lines = (job_dir / "events.jsonl").read_text().splitlines()
+        self.assertEqual([json.loads(line) for line in lines], events)
+
+    def test_events_jsonl_written_on_failure_too(self):
+        events = [{"type": "result", "is_error": True, "subtype": "error_max_turns"}]
+        executor = _FakeExecutor(
+            exception=ExecutorUnavailable("boom"),
+            last_envelope={"is_error": True},
+            last_request_sections={"nonce": "x"},
+            last_events=events,
+        )
+        _handle_job(self.client, self.state, executor, _job(), self.config)
+
+        job_dir = self._job_dir()
+        lines = (job_dir / "events.jsonl").read_text().splitlines()
+        self.assertEqual([json.loads(line) for line in lines], events)
 
     def test_no_files_written_when_executor_exposes_no_logs(self):
         # The scripted and stub executors: no last_envelope/last_request_sections at

@@ -33,14 +33,17 @@ ENV_SCRIPT = "KEEL_SCRIPT"
 ENV_HEARTBEAT_STALE_AFTER = "KEEL_HEARTBEAT_STALE_AFTER"
 DEFAULT_HEARTBEAT_STALE_AFTER = DEFAULT_POLL_WINDOW_SECONDS + POLL_TIMEOUT_MARGIN_SECONDS + 15.0
 
-# spec 002-words-are-words FR-007: the per-job cap the closed `claude` invocation is
-# given (`--max-budget-usd`, `--max-turns` in executor.py's `ClaudeCodeExecutor`) --
-# generous for one answer, small for a runaway tool loop or an attacker-lengthened
-# conversation. Same flag > env > `$KEEL_HOME/config.json` precedence as every other key.
+# spec 002-words-are-words FR-007, amended by FR-009 (2026-09-04, the founder's live
+# run): the per-job cap the closed `claude` invocation is given (`--max-budget-usd`,
+# `--max-turns` in executor.py's `ClaudeCodeExecutor`) -- generous for one answer, small
+# for a runaway tool loop or an attacker-lengthened conversation. Same flag > env >
+# `$KEEL_HOME/config.json` precedence as every other key. The original 0.25/2 stopped
+# two real jobs in a row; a legitimate breakdown job spends around $0.25 and three to
+# five turns, so the defaults now leave headroom for a retry within the cap.
 ENV_JOB_BUDGET_USD = "KEEL_JOB_BUDGET_USD"
-DEFAULT_JOB_BUDGET_USD = 0.25
+DEFAULT_JOB_BUDGET_USD = 1.00
 ENV_JOB_MAX_TURNS = "KEEL_JOB_MAX_TURNS"
-DEFAULT_JOB_MAX_TURNS = 2
+DEFAULT_JOB_MAX_TURNS = 6
 
 
 @dataclass
