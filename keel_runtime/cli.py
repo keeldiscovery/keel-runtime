@@ -95,7 +95,13 @@ def _run_connect(args) -> int:
             file=sys.stderr,
         )
 
-    executor = get_executor(config.executor, config.script_path)
+    executor = get_executor(
+        config.executor,
+        config.script_path,
+        home=config.home,
+        budget_usd=config.job_budget_usd,
+        max_turns=config.job_max_turns,
+    )
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)
 

@@ -4,12 +4,15 @@
 non-empty `questions[]` each shaped `{id, question, input_type, required}`; `COMPLETED`
 requires a `result` conforming to `completed_result_schema`. Schema conformance uses
 `jsonschema.validate` when that package is importable, else `_subset_validate`, which
-implements exactly the server's own subset (spec FR-019): `type`, `required`,
-`properties`, `enum`, `items`, `additionalProperties: false`; every other keyword is
-ignored.
+implements exactly the server's own subset (spec FR-019, extended by spec
+002-words-are-words FR-006): `type`, `required`, `properties`, `enum`, `items`,
+`additionalProperties: false`, `maxLength`, `minLength`, `maxItems`, `pattern`
+(`re.search`, matching keel-cloud's own `ResultSchemaValidator` so the runtime's local
+check agrees with Cloud's); every other keyword is ignored.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 try:
@@ -72,13 +75,26 @@ def _validate_against_schema(value: Any, schema: dict) -> None:
 
 
 def _subset_validate(value: Any, schema: dict, path: str) -> None:
-    """The stdlib fallback: exactly the server's ResultSchemaValidator subset (FR-019)."""
+    """The stdlib fallback: exactly the server's ResultSchemaValidator subset (spec
+    FR-019, extended by spec 002-words-are-words FR-006).
+    """
     expected_type = schema.get("type")
     if expected_type is not None and not _matches_type(value, expected_type):
         raise InvalidResponse(f"{path}: expected type '{expected_type}'")
 
     if "enum" in schema and value not in schema["enum"]:
         raise InvalidResponse(f"{path}: value not in enum {schema['enum']}")
+
+    if isinstance(value, str):
+        max_length = schema.get("maxLength")
+        if max_length is not None and len(value) > max_length:
+            raise InvalidResponse(f"{path}: longer than maxLength {max_length}")
+        min_length = schema.get("minLength")
+        if min_length is not None and len(value) < min_length:
+            raise InvalidResponse(f"{path}: shorter than minLength {min_length}")
+        pattern = schema.get("pattern")
+        if pattern is not None and not re.search(pattern, value):
+            raise InvalidResponse(f"{path}: does not match pattern {pattern!r}")
 
     if isinstance(value, dict) and expected_type in (None, "object"):
         for required_field in schema.get("required") or []:
@@ -95,6 +111,9 @@ def _subset_validate(value: Any, schema: dict, path: str) -> None:
                     raise InvalidResponse(f"{path}.{key}: additional property not allowed")
 
     if isinstance(value, list) and expected_type in (None, "array"):
+        max_items = schema.get("maxItems")
+        if max_items is not None and len(value) > max_items:
+            raise InvalidResponse(f"{path}: more items than maxItems {max_items}")
         items_schema = schema.get("items")
         if items_schema is not None:
             for index, item in enumerate(value):

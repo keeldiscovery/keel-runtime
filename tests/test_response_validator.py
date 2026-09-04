@@ -119,6 +119,63 @@ class ResponseValidatorTest(unittest.TestCase):
         }
         validate_response({"outcome": "COMPLETED", "result": "not-an-email"}, contract)
 
+    # -- spec 002-words-are-words FR-006 ---------------------------------------------
+
+    def test_max_length_keyword(self):
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {"type": "string", "maxLength": 5},
+        }
+        validate_response({"outcome": "COMPLETED", "result": "hello"}, contract)  # passes
+        with self.assertRaises(InvalidResponse):
+            validate_response({"outcome": "COMPLETED", "result": "hello!"}, contract)
+
+    def test_min_length_keyword(self):
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {"type": "string", "minLength": 3},
+        }
+        validate_response({"outcome": "COMPLETED", "result": "abc"}, contract)  # passes
+        with self.assertRaises(InvalidResponse):
+            validate_response({"outcome": "COMPLETED", "result": "ab"}, contract)
+
+    def test_max_items_keyword(self):
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {"type": "array", "maxItems": 2, "items": {"type": "string"}},
+        }
+        validate_response({"outcome": "COMPLETED", "result": ["a", "b"]}, contract)  # passes
+        with self.assertRaises(InvalidResponse):
+            validate_response({"outcome": "COMPLETED", "result": ["a", "b", "c"]}, contract)
+
+    def test_pattern_keyword_uses_re_search(self):
+        # design §L3: no bare http(s)/www links in agent words.
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {
+                "type": "string",
+                "pattern": r"^(?!.*(https?://|www\.))",
+            },
+        }
+        validate_response({"outcome": "COMPLETED", "result": "a plain sentence"}, contract)
+        with self.assertRaises(InvalidResponse):
+            validate_response(
+                {"outcome": "COMPLETED", "result": "visit https://example.com"}, contract
+            )
+
+    def test_nested_field_caps_apply(self):
+        schema = {
+            "type": "object",
+            "required": ["statement"],
+            "properties": {"statement": {"type": "string", "maxLength": 5}},
+        }
+        contract = {"allowed_outcomes": ["COMPLETED"], "completed_result_schema": schema}
+        validate_response({"outcome": "COMPLETED", "result": {"statement": "short"}}, contract)
+        with self.assertRaises(InvalidResponse):
+            validate_response(
+                {"outcome": "COMPLETED", "result": {"statement": "too long"}}, contract
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
