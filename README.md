@@ -77,6 +77,8 @@ For each key, the first source that sets it wins: **CLI flag > environment varia
 | Credential backend | `--credential-backend` | `KEEL_CREDENTIAL_BACKEND` | `credential_backend` |
 | Script path (`scripted` executor only) | `--script` | `KEEL_SCRIPT` | `script` |
 | Heartbeat staleness threshold (seconds) | — | `KEEL_HEARTBEAT_STALE_AFTER` | `heartbeat_stale_after` |
+| Per-job budget, USD (`claude-code` executor only) | — | `KEEL_JOB_BUDGET_USD` | `budget_usd` |
+| Per-job max turns (`claude-code` executor only) | — | `KEEL_JOB_MAX_TURNS` | `max_turns` |
 
 `KEEL_HOME` defaults to `~/.keel` if nothing sets it. A missing `base_url` after all
 three sources are checked exits with a one-line remedy rather than a traceback.
@@ -90,10 +92,45 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
 
 ## Executors
 
-- **`claude-code`** (default) — the real executor. Invokes the `claude` CLI in
-  non-interactive print mode (`claude -p`), rendering the job's request into a
-  SYSTEM/CONTEXT/HISTORY/INPUT/RESPONSE-REQUIREMENTS prompt and parsing the first JSON
-  object out of its stdout.
+- **`claude-code`** (default) — the real executor. Invokes the `claude` CLI in a
+  closed, tool-less, session-less shape (spec `002-words-are-words`; design of record
+  keel-cloud `canon/designs/words-are-words-design.md` §L1) so that text a stranger or
+  the founder typed can be read as source material but never followed as an
+  instruction:
+
+  ```
+  claude -p
+    --tools ""                      # no built-in tools at all
+    --strict-mcp-config             # no MCP servers from any config
+    --setting-sources ""            # ignore user, project and local settings (CLAUDE.md included)
+    --no-session-persistence        # nothing written to disk for later resumption
+    --max-turns <N>                 # KEEL_JOB_MAX_TURNS, default 2
+    --max-budget-usd <amount>       # KEEL_JOB_BUDGET_USD, default 0.25
+    --output-format json            # the envelope, not raw prose
+    --json-schema <contract>        # the job's own response contract, enforced by the CLI
+    --system-prompt <fixed text>    # runtime-owned, identical for every job
+  ```
+
+  with the prompt on **stdin** (never argv), `cwd` an empty per-job directory under
+  `$KEEL_HOME/jobs/<job_id>/`, and an allow-listed environment (`PATH`, `HOME`, `USER`,
+  `LANG`, `LC_*`, `TMPDIR`, `TERM`, plus any `ANTHROPIC_*`/`CLAUDE_*` variable the CLI
+  needs for its own auth — never `KEEL_HOME`, never `KEEL_BASE_URL`). `--bare` is
+  deliberately **not** used: it skips keychain reads and the CLI reports "Not logged
+  in". The result comes from the CLI's own JSON envelope's `structured_output`, never
+  scraped from stdout. **Requires Claude Code ≥ 2.1.259.** An older CLI without
+  `--json-schema` exits non-zero and the job fails `LLM_UNAVAILABLE`.
+
+  Every human- or model-authored string in the prompt — the founder's framing text, a
+  participant's answers, earlier turns — sits inside one `<<<KEEL-DATA <nonce>>> ...
+  <<<END KEEL-DATA <nonce>>>` fence with a fresh per-job random nonce, under a heading
+  that says it is source material, not an instruction; the fixed system prompt states
+  the same rule.
+
+  The per-job directory (`$KEEL_HOME/jobs/<job_id>/`) holds `envelope.json` (the CLI's
+  own JSON envelope, verbatim) and `request.json` (the prompt sections that were sent)
+  once the job finishes, success or failure — diagnostic logs, kept across jobs but
+  pruned to the newest 50 each time `connect` starts.
+
 - **`stub`** — deterministic, test-only. Selected with `--executor stub`, never a
   default. Driven entirely by `request_payload.input.content`: see
   `keel_runtime/testing/stub_executor.py`. This is what `KeelConnectJourneyTest`
@@ -133,7 +170,9 @@ never required:
   `0600` JSON file at `$KEEL_HOME/credentials.json`.
 - `jsonschema` — used by `response_validator.py` for full JSON-Schema validation of a
   completed job's result; otherwise a small subset validator mirrors the server's own
-  `ResultSchemaValidator` (spec FR-019).
+  `ResultSchemaValidator` (spec FR-019: `type`, `required`, `properties`, `enum`,
+  `items`, `additionalProperties: false`; spec `002-words-are-words` FR-006 adds
+  `maxLength`, `minLength`, `maxItems`, `pattern`).
 
 ## Tests
 

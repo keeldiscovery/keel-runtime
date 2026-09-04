@@ -6,10 +6,22 @@ to `/fail` error codes; a ``422 INVALID_RESULT`` from `/complete` is treated the
 the executor's own ``InvalidResponse``. A ``401`` anywhere discards the stored
 credential and re-authorizes from scratch. A network error retries with capped
 exponential backoff. ``KeyboardInterrupt`` exits cleanly.
+
+spec 002-words-are-words FR-005: every job's `envelope.json` (the CLI's own envelope,
+verbatim) and `request.json` (the prompt sections that were sent, for the referee's
+canary check) are written to `$KEEL_HOME/jobs/<job_id>/` -- read off the executor's
+`last_envelope`/`last_request_sections` attributes when present, so this stays a no-op
+for the scripted and stub executors, which have neither. A `/fail` message is always
+`<code>: <=200 chars of diagnostic text>`, never model output (the executor's own
+exception messages are the CLI's stderr or the envelope's own error text, not
+`structured_output`). Job directories under `$KEEL_HOME/jobs/` are pruned to the newest
+50 once, at the start of `run_loop`.
 """
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import time
 
 from . import agent_session as agent_session_module
@@ -28,8 +40,17 @@ from .response_validator import InvalidResponse, validate_response
 INITIAL_BACKOFF_SECONDS = 1.0
 MAX_BACKOFF_SECONDS = 30.0
 
+# spec FR-005 Edge Cases: the per-job directory holds the envelope log the referee
+# reads -- kept, not deleted on completion -- but pruned to the newest 50 so it never
+# grows without bound over a long-running `connect`.
+JOB_DIR_RETENTION = 50
+
+# spec FR-005: the `/fail` message is "<code>: <=200 chars of stderr>".
+_FAIL_MESSAGE_DETAIL_LIMIT = 200
+
 
 def run_loop(client: CloudClient, state, executor: Executor, store, config) -> None:
+    _prune_job_dirs(config.home)
     backoff = INITIAL_BACKOFF_SECONDS
     try:
         while True:
@@ -39,7 +60,7 @@ def run_loop(client: CloudClient, state, executor: Executor, store, config) -> N
                 if answer.get("type") == "NO_WORK":
                     _write_heartbeat(state, config)
                     continue
-                _handle_job(client, state, executor, answer["job"])
+                _handle_job(client, state, executor, answer["job"], config)
                 _write_heartbeat(state, config)
             except AuthenticationExpired:
                 state = _reauthorize(client, store, config)
@@ -50,6 +71,16 @@ def run_loop(client: CloudClient, state, executor: Executor, store, config) -> N
                 continue
     except KeyboardInterrupt:
         return
+
+
+def _prune_job_dirs(home, keep: int = JOB_DIR_RETENTION) -> None:
+    jobs_dir = home / "jobs"
+    if not jobs_dir.is_dir():
+        return
+    entries = [entry for entry in jobs_dir.iterdir() if entry.is_dir()]
+    entries.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
+    for stale in entries[keep:]:
+        shutil.rmtree(stale, ignore_errors=True)
 
 
 def _write_heartbeat(state, config) -> None:
@@ -67,7 +98,23 @@ def _write_heartbeat(state, config) -> None:
     )
 
 
-def _handle_job(client: CloudClient, state, executor: Executor, job: dict) -> None:
+def _write_job_logs(config, executor: Executor, job_id: str) -> None:
+    # spec FR-005: written for whichever executor exposes them -- ClaudeCodeExecutor
+    # does, the scripted and stub executors don't, and this is a no-op for those (they
+    # are untouched by this spec).
+    envelope = getattr(executor, "last_envelope", None)
+    sections = getattr(executor, "last_request_sections", None)
+    if envelope is None and sections is None:
+        return
+    job_dir = config.home / "jobs" / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    if envelope is not None:
+        (job_dir / "envelope.json").write_text(json.dumps(envelope, indent=2))
+    if sections is not None:
+        (job_dir / "request.json").write_text(json.dumps(sections, indent=2, default=str))
+
+
+def _handle_job(client: CloudClient, state, executor: Executor, job: dict, config) -> None:
     request = InferenceRequest(
         job_id=job["job_id"],
         interaction_id=job["interaction_id"],
@@ -79,20 +126,27 @@ def _handle_job(client: CloudClient, state, executor: Executor, job: dict) -> No
         response = executor.execute(request)
         validate_response(response, job["request_payload"]["response_contract"])
     except ExecutorUnavailable as exc:
+        _write_job_logs(config, executor, job["job_id"])
         _fail(client, state, job["job_id"], "LLM_UNAVAILABLE", str(exc))
         return
     except ExecutorAuthFailure as exc:
+        _write_job_logs(config, executor, job["job_id"])
         _fail(client, state, job["job_id"], "EXECUTOR_AUTH_FAILED", str(exc))
         return
     except ExecutorTimeout as exc:
+        _write_job_logs(config, executor, job["job_id"])
         _fail(client, state, job["job_id"], "EXECUTOR_TIMEOUT", str(exc))
         return
     except InvalidResponse as exc:
+        _write_job_logs(config, executor, job["job_id"])
         _fail(client, state, job["job_id"], "INVALID_LLM_RESPONSE", str(exc))
         return
     except Exception as exc:  # noqa: BLE001 -- anything else maps to INTERNAL_ERROR (FR-027)
+        _write_job_logs(config, executor, job["job_id"])
         _fail(client, state, job["job_id"], "INTERNAL_ERROR", str(exc))
         return
+
+    _write_job_logs(config, executor, job["job_id"])
 
     try:
         client.complete_job(job["job_id"], state.access_token, response)
@@ -107,7 +161,12 @@ def _handle_job(client: CloudClient, state, executor: Executor, job: dict) -> No
 
 
 def _fail(client: CloudClient, state, job_id: str, code: str, message: str) -> None:
-    client.fail_job(job_id, state.access_token, code, message[:500])
+    # spec FR-005: "<code>: <=200 chars of stderr>" -- never model output. `message`
+    # here is always the executor's own exception text (the CLI's stderr, the
+    # envelope's own error string, or the validator's diagnostic), never
+    # `structured_output`.
+    detail = message[:_FAIL_MESSAGE_DETAIL_LIMIT]
+    client.fail_job(job_id, state.access_token, code, f"{code}: {detail}")
 
 
 def _reauthorize(client: CloudClient, store, config):

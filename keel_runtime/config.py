@@ -33,6 +33,15 @@ ENV_SCRIPT = "KEEL_SCRIPT"
 ENV_HEARTBEAT_STALE_AFTER = "KEEL_HEARTBEAT_STALE_AFTER"
 DEFAULT_HEARTBEAT_STALE_AFTER = DEFAULT_POLL_WINDOW_SECONDS + POLL_TIMEOUT_MARGIN_SECONDS + 15.0
 
+# spec 002-words-are-words FR-007: the per-job cap the closed `claude` invocation is
+# given (`--max-budget-usd`, `--max-turns` in executor.py's `ClaudeCodeExecutor`) --
+# generous for one answer, small for a runaway tool loop or an attacker-lengthened
+# conversation. Same flag > env > `$KEEL_HOME/config.json` precedence as every other key.
+ENV_JOB_BUDGET_USD = "KEEL_JOB_BUDGET_USD"
+DEFAULT_JOB_BUDGET_USD = 0.25
+ENV_JOB_MAX_TURNS = "KEEL_JOB_MAX_TURNS"
+DEFAULT_JOB_MAX_TURNS = 2
+
 
 @dataclass
 class RuntimeConfig:
@@ -43,6 +52,8 @@ class RuntimeConfig:
     open_browser: bool
     heartbeat_stale_after: float
     script_path: str | None
+    job_budget_usd: float
+    job_max_turns: int
 
 
 @dataclass
@@ -101,6 +112,50 @@ def _resolve_heartbeat_stale_after(args, file_config: dict) -> float:
             pass
 
     return DEFAULT_HEARTBEAT_STALE_AFTER
+
+
+def _resolve_job_budget_usd(args, file_config: dict) -> float:
+    flag_value = getattr(args, "job_budget_usd", None)
+    if flag_value is not None:
+        return float(flag_value)
+
+    env_value = os.environ.get(ENV_JOB_BUDGET_USD)
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            pass  # an unparseable override is not fatal -- fall through to file/default
+
+    file_value = file_config.get("budget_usd")
+    if file_value is not None:
+        try:
+            return float(file_value)
+        except (TypeError, ValueError):
+            pass
+
+    return DEFAULT_JOB_BUDGET_USD
+
+
+def _resolve_job_max_turns(args, file_config: dict) -> int:
+    flag_value = getattr(args, "job_max_turns", None)
+    if flag_value is not None:
+        return int(flag_value)
+
+    env_value = os.environ.get(ENV_JOB_MAX_TURNS)
+    if env_value:
+        try:
+            return int(env_value)
+        except ValueError:
+            pass  # an unparseable override is not fatal -- fall through to file/default
+
+    file_value = file_config.get("max_turns")
+    if file_value is not None:
+        try:
+            return int(file_value)
+        except (TypeError, ValueError):
+            pass
+
+    return DEFAULT_JOB_MAX_TURNS
 
 
 def load_status_config(args) -> StatusConfig:
@@ -162,6 +217,9 @@ def load(args) -> RuntimeConfig:
         or file_config.get("script")
     )
 
+    job_budget_usd = _resolve_job_budget_usd(args, file_config)
+    job_max_turns = _resolve_job_max_turns(args, file_config)
+
     return RuntimeConfig(
         base_url=base_url,
         executor=executor,
@@ -170,4 +228,6 @@ def load(args) -> RuntimeConfig:
         open_browser=open_browser,
         heartbeat_stale_after=heartbeat_stale_after,
         script_path=script_path,
+        job_budget_usd=job_budget_usd,
+        job_max_turns=job_max_turns,
     )

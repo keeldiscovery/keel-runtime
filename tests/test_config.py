@@ -14,6 +14,8 @@ _ENV_KEYS = (
     "KEEL_HOME",
     "KEEL_CREDENTIAL_BACKEND",
     "KEEL_SCRIPT",
+    "KEEL_JOB_BUDGET_USD",
+    "KEEL_JOB_MAX_TURNS",
 )
 
 
@@ -105,6 +107,46 @@ class ConfigPrecedenceTest(unittest.TestCase):
         os.environ["KEEL_SCRIPT"] = "/env/script.json"
         config = config_module.load(self._args())
         self.assertEqual(config.script_path, "/env/script.json")
+
+    # spec 002-words-are-words FR-007 -----------------------------------------------
+
+    def test_job_budget_usd_defaults_to_a_quarter_dollar(self):
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertEqual(config.job_budget_usd, 0.25)
+
+    def test_job_max_turns_defaults_to_two(self):
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertEqual(config.job_max_turns, 2)
+
+    def test_job_budget_usd_env_wins_over_file(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "budget_usd": 0.5})
+        )
+        os.environ["KEEL_JOB_BUDGET_USD"] = "0.75"
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_budget_usd, 0.75)
+
+    def test_job_budget_usd_file_used_when_no_env(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "budget_usd": 0.5})
+        )
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_budget_usd, 0.5)
+
+    def test_job_max_turns_env_wins_over_file(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "max_turns": 3})
+        )
+        os.environ["KEEL_JOB_MAX_TURNS"] = "5"
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_max_turns, 5)
+
+    def test_job_max_turns_file_used_when_no_env(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "max_turns": 3})
+        )
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_max_turns, 3)
 
 
 if __name__ == "__main__":

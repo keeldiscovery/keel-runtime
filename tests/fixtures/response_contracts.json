@@ -1,12 +1,13 @@
 {
   "_source": "keel-cloud specs/022-inference-orchestrator/spec.md FR-012 (needs_input_schema per FR-013), commit 7ee395ba62a8f4c21c8a7be812a579a91aef059e -- pin, not a second source of truth; re-copy when Cloud's contracts change.",
+  "_note": "spec 002-words-are-words FR-006: one capped field per screen (maxLength/maxItems), matching the caps design of record canon/designs/words-are-words-design.md §L3 proposes -- exercises the runtime's subset validator against the same shape Cloud will ship.",
   "PROBLEM_FRAME": {
     "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
     "completed_result_schema": {
       "type": "object",
       "required": ["statement"],
       "properties": {
-        "statement": {"type": "string"}
+        "statement": {"type": "string", "maxLength": 400}
       }
     },
     "needs_input_schema": {
@@ -41,7 +42,7 @@
             "type": "object",
             "required": ["heading", "statement", "risk", "question", "role"],
             "properties": {
-              "heading": {"type": "string"},
+              "heading": {"type": "string", "maxLength": 160},
               "statement": {"type": "string"},
               "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
               "question": {
@@ -103,7 +104,7 @@
       "type": "object",
       "required": ["statement"],
       "properties": {
-        "statement": {"type": "string"}
+        "statement": {"type": "string", "maxLength": 400}
       }
     },
     "needs_input_schema": {
@@ -138,7 +139,7 @@
             "type": "object",
             "required": ["heading", "statement", "risk", "question", "role"],
             "properties": {
-              "heading": {"type": "string"},
+              "heading": {"type": "string", "maxLength": 160},
               "statement": {"type": "string"},
               "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
               "question": {
@@ -200,7 +201,7 @@
       "type": "object",
       "required": ["statement"],
       "properties": {
-        "statement": {"type": "string"}
+        "statement": {"type": "string", "maxLength": 400}
       }
     },
     "needs_input_schema": {
@@ -235,7 +236,7 @@
             "type": "object",
             "required": ["heading", "statement", "risk", "question", "role"],
             "properties": {
-              "heading": {"type": "string"},
+              "heading": {"type": "string", "maxLength": 160},
               "statement": {"type": "string"},
               "risk": {"type": "string", "enum": ["LOAD_BEARING", "SUPPORTING"]},
               "question": {
@@ -297,7 +298,7 @@
       "type": "object",
       "required": ["statement", "rationale", "carries"],
       "properties": {
-        "statement": {"type": "string"},
+        "statement": {"type": "string", "maxLength": 400},
         "rationale": {"type": "string"},
         "carries": {"type": "array", "items": {"type": "string"}}
       }
@@ -328,7 +329,7 @@
       "type": "object",
       "required": ["statement", "rationale", "carries"],
       "properties": {
-        "statement": {"type": "string"},
+        "statement": {"type": "string", "maxLength": 400},
         "rationale": {"type": "string"},
         "carries": {"type": "array", "items": {"type": "string"}}
       }
@@ -373,7 +374,7 @@
                   "type": "object",
                   "required": ["statement", "claimType", "stance"],
                   "properties": {
-                    "statement": {"type": "string"},
+                    "statement": {"type": "string", "maxLength": 400},
                     "claimType": {
                       "type": "string",
                       "enum": [
@@ -424,7 +425,7 @@
       "type": "object",
       "required": ["findings", "openDecisions"],
       "properties": {
-        "findings": {"type": "array", "items": {"type": "string"}},
+        "findings": {"type": "array", "maxItems": 10, "items": {"type": "string"}},
         "openDecisions": {"type": "array", "items": {"type": "string"}},
         "goingAhead": {"type": "string"}
       }
