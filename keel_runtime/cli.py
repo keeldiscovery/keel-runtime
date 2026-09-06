@@ -101,6 +101,7 @@ def _run_connect(args) -> int:
         home=config.home,
         budget_usd=config.job_budget_usd,
         max_turns=config.job_max_turns,
+        timeout_seconds=config.job_timeout_seconds,
     )
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)

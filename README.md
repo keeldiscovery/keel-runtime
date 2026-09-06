@@ -79,6 +79,7 @@ For each key, the first source that sets it wins: **CLI flag > environment varia
 | Heartbeat staleness threshold (seconds) | — | `KEEL_HEARTBEAT_STALE_AFTER` | `heartbeat_stale_after` |
 | Per-job budget, USD (`claude-code` executor only) | — | `KEEL_JOB_BUDGET_USD` | `budget_usd` |
 | Per-job max turns (`claude-code` executor only) | — | `KEEL_JOB_MAX_TURNS` | `max_turns` |
+| Per-job wall clock, seconds (`claude-code` executor only) | — | `KEEL_JOB_TIMEOUT_SECONDS` | `job_timeout_seconds` |
 
 `KEEL_HOME` defaults to `~/.keel` if nothing sets it. A missing `base_url` after all
 three sources are checked exits with a one-line remedy rather than a traceback.
@@ -110,6 +111,13 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
     --json-schema <contract>        # the job's own response contract, enforced by the CLI
     --system-prompt <fixed text>    # runtime-owned, identical for every job
   ```
+
+  The whole invocation is given `KEEL_JOB_TIMEOUT_SECONDS` (default **300s**) of wall
+  clock, after which the runtime raises `ExecutorTimeout` and the job fails. It is a
+  ceiling on a stuck job, not a target: a healthy breakdown answers in about 90s. The
+  number was hard-coded at 120s until keel-e2e-eval's instruction eval measured the real
+  spread of an assumption job -- 81 to 120 seconds, six of twenty-one hitting the limit,
+  the slowest survivor eleven seconds clear -- and it now resolves like every other key.
 
   with the prompt on **stdin** (never argv), `cwd` an empty per-job directory under
   `$KEEL_HOME/jobs/<job_id>/`, and an allow-listed environment (`PATH`, `HOME`, `USER`,

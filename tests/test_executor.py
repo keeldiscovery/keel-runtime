@@ -19,6 +19,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from keel_runtime import executor as executor_module
 from keel_runtime.executor import (
     SYSTEM_PROMPT,
     ClaudeCodeExecutor,
@@ -672,6 +673,33 @@ class RecoveryPassTest(_ExecutorTestBase):
 def _stream(*events) -> str:
     """Renders `events` as `stream-json` stdout: one JSON object per line."""
     return "".join(json.dumps(event) + "\n" for event in events)
+
+
+class ExecutorTimeoutWiringTest(unittest.TestCase):
+    """The wall clock is production's own number, and `get_executor` must carry it.
+
+    It was hard-coded at 120s until keel-e2e-eval's instruction eval measured the real
+    spread of an assumption job (81-120s, six of twenty-one timing out, the slowest
+    survivor eleven seconds clear). It now sits beside `budget_usd` and `max_turns` with
+    the same flag > env > file > default resolution, and this asserts the two ends of
+    that: the default a caller gets for free, and an override actually reaching the
+    executor rather than being accepted and dropped.
+    """
+
+    def test_the_default_timeout_is_five_minutes(self):
+        self.assertEqual(executor_module.DEFAULT_JOB_TIMEOUT_SECONDS, 300.0)
+        self.assertEqual(executor_module.ClaudeCodeExecutor().timeout_seconds, 300.0)
+
+    def test_get_executor_passes_the_timeout_through_to_the_claude_executor(self):
+        made = executor_module.get_executor("claude-code", timeout_seconds=450.0)
+
+        self.assertIsInstance(made, executor_module.ClaudeCodeExecutor)
+        self.assertEqual(made.timeout_seconds, 450.0)
+
+    def test_get_executor_defaults_the_timeout_when_no_caller_says(self):
+        made = executor_module.get_executor("claude-code")
+
+        self.assertEqual(made.timeout_seconds, 300.0)
 
 
 if __name__ == "__main__":

@@ -25,7 +25,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import DEFAULT_HOME, DEFAULT_JOB_BUDGET_USD, DEFAULT_JOB_MAX_TURNS
+from .config import (
+    DEFAULT_HOME,
+    DEFAULT_JOB_BUDGET_USD,
+    DEFAULT_JOB_MAX_TURNS,
+    DEFAULT_JOB_TIMEOUT_SECONDS,
+)
 from .response_validator import InvalidResponse  # re-exported for executor callers
 
 __all__ = [
@@ -328,7 +333,7 @@ class ClaudeCodeExecutor(Executor):
         home: Path | str | None = None,
         budget_usd: float = DEFAULT_JOB_BUDGET_USD,
         max_turns: int = DEFAULT_JOB_MAX_TURNS,
-        timeout_seconds: float = 120.0,
+        timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
     ):
         self.binary = binary
         self.home = Path(home) if home is not None else DEFAULT_HOME
@@ -481,8 +486,9 @@ class ClaudeCodeExecutor(Executor):
 
 
 _EXECUTORS = {
-    "claude-code": lambda home, budget_usd, max_turns: ClaudeCodeExecutor(
-        home=home, budget_usd=budget_usd, max_turns=max_turns
+    "claude-code": lambda home, budget_usd, max_turns, timeout_seconds: ClaudeCodeExecutor(
+        home=home, budget_usd=budget_usd, max_turns=max_turns,
+        timeout_seconds=timeout_seconds
     ),
 }
 
@@ -496,6 +502,7 @@ def get_executor(
     home: Path | str | None = None,
     budget_usd: float = DEFAULT_JOB_BUDGET_USD,
     max_turns: int = DEFAULT_JOB_MAX_TURNS,
+    timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
 ) -> Executor:
     if name == "stub":
         # Lazy import: keel_runtime.testing is a test-only dependency of the package,
@@ -517,4 +524,4 @@ def get_executor(
     if factory is None:
         known = ", ".join(sorted(list(_EXECUTORS.keys()) + ["stub", "scripted"]))
         raise SystemExit(f"unknown executor '{name}'; known executors: {known}")
-    return factory(home, budget_usd, max_turns)
+    return factory(home, budget_usd, max_turns, timeout_seconds)

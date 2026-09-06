@@ -16,6 +16,7 @@ _ENV_KEYS = (
     "KEEL_SCRIPT",
     "KEEL_JOB_BUDGET_USD",
     "KEEL_JOB_MAX_TURNS",
+    "KEEL_JOB_TIMEOUT_SECONDS",
 )
 
 
@@ -147,6 +148,35 @@ class ConfigPrecedenceTest(unittest.TestCase):
         )
         config = config_module.load(self._args())
         self.assertEqual(config.job_max_turns, 3)
+
+    # The wall clock a closed `claude` invocation is given ---------------------------
+    # Measured rather than guessed: keel-e2e-eval's instruction eval found every
+    # `*_ASSUMPTIONS` job running 81-120s against the old hard-coded 120, six of
+    # twenty-one hitting it, and the slowest survivor eleven seconds clear.
+
+    def test_job_timeout_seconds_defaults_to_five_minutes(self):
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertEqual(config.job_timeout_seconds, 300.0)
+
+    def test_job_timeout_seconds_env_wins_over_file(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "job_timeout_seconds": 200})
+        )
+        os.environ["KEEL_JOB_TIMEOUT_SECONDS"] = "450"
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_timeout_seconds, 450.0)
+
+    def test_job_timeout_seconds_file_used_when_no_env(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "job_timeout_seconds": 200})
+        )
+        config = config_module.load(self._args())
+        self.assertEqual(config.job_timeout_seconds, 200.0)
+
+    def test_an_unparseable_job_timeout_override_falls_through_to_the_default(self):
+        os.environ["KEEL_JOB_TIMEOUT_SECONDS"] = "as long as it takes"
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertEqual(config.job_timeout_seconds, 300.0)
 
 
 if __name__ == "__main__":

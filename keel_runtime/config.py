@@ -45,6 +45,18 @@ DEFAULT_JOB_BUDGET_USD = 1.00
 ENV_JOB_MAX_TURNS = "KEEL_JOB_MAX_TURNS"
 DEFAULT_JOB_MAX_TURNS = 6
 
+# The wall clock one closed `claude` invocation is given before the runtime gives up on
+# it (`ClaudeCodeExecutor.timeout_seconds`). It sat hard-coded at 120s beside the two
+# caps above until keel-e2e-eval's instruction eval measured what a real breakdown job
+# actually costs in seconds: the 21 `*_ASSUMPTIONS` jobs of run
+# `20260906T170528Z-instructions-baseline` ran 81-120s, six of them hit the limit, and
+# the slowest survivor finished with eleven seconds to spare. The whole distribution sat
+# against the number, and keel-cloud spec 029 makes those instructions longer, not
+# shorter. 300s is chosen to be clear of the measured spread rather than round -- and it
+# is a *ceiling on a stuck job*, not a target: a healthy job still answers in about 90.
+ENV_JOB_TIMEOUT_SECONDS = "KEEL_JOB_TIMEOUT_SECONDS"
+DEFAULT_JOB_TIMEOUT_SECONDS = 300.0
+
 
 @dataclass
 class RuntimeConfig:
@@ -57,6 +69,7 @@ class RuntimeConfig:
     script_path: str | None
     job_budget_usd: float
     job_max_turns: int
+    job_timeout_seconds: float
 
 
 @dataclass
@@ -161,6 +174,28 @@ def _resolve_job_max_turns(args, file_config: dict) -> int:
     return DEFAULT_JOB_MAX_TURNS
 
 
+def _resolve_job_timeout_seconds(args, file_config: dict) -> float:
+    flag_value = getattr(args, "job_timeout_seconds", None)
+    if flag_value is not None:
+        return float(flag_value)
+
+    env_value = os.environ.get(ENV_JOB_TIMEOUT_SECONDS)
+    if env_value:
+        try:
+            return float(env_value)
+        except ValueError:
+            pass  # an unparseable override is not fatal -- fall through to file/default
+
+    file_value = file_config.get("job_timeout_seconds")
+    if file_value is not None:
+        try:
+            return float(file_value)
+        except (TypeError, ValueError):
+            pass
+
+    return DEFAULT_JOB_TIMEOUT_SECONDS
+
+
 def load_status_config(args) -> StatusConfig:
     """Resolves just what `status` needs -- `home` and `heartbeat_stale_after` -- with
     the same flag > env > `$KEEL_HOME/config.json` precedence as every other key, but
@@ -222,6 +257,7 @@ def load(args) -> RuntimeConfig:
 
     job_budget_usd = _resolve_job_budget_usd(args, file_config)
     job_max_turns = _resolve_job_max_turns(args, file_config)
+    job_timeout_seconds = _resolve_job_timeout_seconds(args, file_config)
 
     return RuntimeConfig(
         base_url=base_url,
@@ -233,4 +269,5 @@ def load(args) -> RuntimeConfig:
         script_path=script_path,
         job_budget_usd=job_budget_usd,
         job_max_turns=job_max_turns,
+        job_timeout_seconds=job_timeout_seconds,
     )
