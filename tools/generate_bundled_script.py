@@ -144,7 +144,7 @@ def build(entry: dict, stage: str) -> dict:
                 raise Refusal(
                     f"{entry['id']} person {answer['person']!r} wrote under {anchor_id} but the "
                     f"corpus records anchoring {anchoring!r}")
-            anchorings.append({"anchorId": anchor_id, "anchoring": anchoring})
+            anchorings.append({"stage": stage, "anchorId": anchor_id, "anchoring": anchoring})
         if anchorings:
             interpret.append({"outcome": "COMPLETED",
                               "result": {"anchorings": anchorings, "unprompted": [], "flags": []}})

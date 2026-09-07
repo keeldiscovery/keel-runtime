@@ -147,6 +147,20 @@ python3 -m pytest
 
 If the tests go red after that, keel-cloud changed a contract — which is the whole point of them.
 
+**Follow-on regeneration, keel-cloud commit `932fdfe`** (branch `028-measured-beliefs-aggregate`,
+2026-09-07, *"Spec 030 follow-on: a questionnaire's ids belong to its stage (DRIFT #37/#38)"*):
+an anchor id is unique only within its own stage (design decision 18, rule Q7), so the INTERPRET
+context's `anchors[]` entries now carry `stage` beside `anchor_id`, and the result's
+`anchorings[]` entries must carry `stage` beside `anchorId`. The exported key sets themselves are
+unchanged — `stage` travels inside `anchors[]`, not as a new top-level context key — so
+`context-keys.json` came back byte-identical; `tests/fixtures/response_contracts.json` changed
+only in `INTERPRET`'s `anchorings` item schema (`stage` added, required) and its own `_source`
+line. `_resolve_interpret_result` now resolves an `anchorId` against `anchors[]` by the
+`(stage, id)` pair and passes `stage` through onto each anchoring, refusing a `(stage, id)` pair
+the context does not carry. `countly-problem.json` was regenerated from the still-frozen
+`01-countly` corpus; every one of its eleven `INTERPRET` entries now carries `"stage": "PROBLEM"`
+alongside its `anchorId`, since the bundled script covers only that stage.
+
 ## What is *not* changed
 
 - The poll loop, `response_validator`, `complete`/`fail`, the stub executor, the claude-code

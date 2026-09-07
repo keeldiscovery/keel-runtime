@@ -309,10 +309,12 @@ class ScriptedExecutorThroughPollerTest(unittest.TestCase):
 
     def test_a_reading_job_completes_with_the_invitation_id_the_context_gave_it(self):
         executor = ScriptedExecutor(self.script)
-        anchor_id = self.script["INTERPRET"][0]["result"]["anchorings"][0]["anchorId"]
+        first_anchoring = self.script["INTERPRET"][0]["result"]["anchorings"][0]
+        stage, anchor_id = first_anchoring["stage"], first_anchoring["anchorId"]
         context = {
             "invitation_id": "invitation-77",
-            "anchors": [{"anchor_id": anchor_id, "prompt": "p", "text": "t", "tap": None}],
+            "anchors": [{"stage": stage, "anchor_id": anchor_id, "prompt": "p", "text": "t",
+                         "tap": None}],
         }
         contract = {
             "allowed_outcomes": ["COMPLETED"],

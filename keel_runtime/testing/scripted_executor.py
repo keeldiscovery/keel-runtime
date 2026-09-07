@@ -136,31 +136,36 @@ class ScriptedExecutor(Executor):
 
 def _resolve_interpret_result(result: dict, context: dict) -> dict:
     """Fills `invitationId` from the context (keel-cloud refuses otherwise) and checks every
-    `anchorings[].anchorId` against the context's own `anchors[]`.
+    `anchorings[]` entry against the context's own `anchors[]`, by the `(stage, id)` pair.
 
     The heading-to-id resolution the old reading contract needed is gone with the shape that
     needed it: an `INTERPRET` context is `{invitation_id, anchors[]}` where an anchor is
-    `{anchor_id, prompt, text, tap}`, and an anchor id is already an id -- so the script's
-    `anchorId` passes through **unchanged**. What survives is the honesty the heading rule
-    had: an id the context does not carry is a refusal, never a value invented to keep a run
-    green. A blank answer is never written into the context at all, so a script that answers
-    one is answering something the reader was never shown, and that is exactly what this
-    refuses.
+    `{stage, anchor_id, prompt, text, tap}`, and an anchor id is already an id -- so the
+    script's `anchorId` passes through **unchanged**. What is new is that an anchor id is
+    unique only within its own stage (keel-cloud design decision 18 / rule Q7, DRIFT #37): a
+    link can carry occasions from more than one approved stage, and every stage's
+    questionnaire numbers its first anchor `A1`. So identity is the pair, not the bare id --
+    the script names `{stage, anchorId}` and both travel onto the anchoring the executor
+    returns, unchanged. What survives is the honesty the heading rule had: a `(stage, id)`
+    pair the context does not carry is a refusal, never a value invented to keep a run green.
+    A blank answer is never written into the context at all, so a script that answers one is
+    answering something the reader was never shown, and that is exactly what this refuses.
     """
     result["invitationId"] = context.get("invitation_id")
 
     offered = {
-        anchor.get("anchor_id")
+        (anchor.get("stage"), anchor.get("anchor_id"))
         for anchor in context.get("anchors") or []
         if isinstance(anchor, dict)
     }
     for anchoring in result.get("anchorings", []):
+        stage = anchoring.get("stage")
         anchor_id = anchoring.get("anchorId")
-        if anchor_id not in offered:
+        if (stage, anchor_id) not in offered:
             raise ExecutorUnavailable(
-                f"scripted executor was scripted to answer anchor '{anchor_id}', which this "
-                f"invitation's context does not carry (it offers "
-                f"{sorted(a for a in offered if a)})"
+                f"scripted executor was scripted to answer anchor '{anchor_id}' in stage "
+                f"'{stage}', which this invitation's context does not carry (it offers "
+                f"{sorted((s, a) for s, a in offered if a)})"
             )
 
     return result

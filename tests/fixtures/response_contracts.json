@@ -1,5 +1,5 @@
 {
-  "_source": "keel-cloud `./gradlew -q screenContracts --args=\"export <dir>\"` @ commit 89a2315 (branch 028-measured-beliefs-aggregate, 2026-09-07)",
+  "_source": "keel-cloud `./gradlew -q screenContracts --args=\"export <dir>\"` @ commit 932fdfe (branch 028-measured-beliefs-aggregate, 2026-09-07)",
   "_note": "Regenerated, never hand-edited. Every screen's response contract exactly as ScreenResponseContracts serves it, plus the three <SCREEN>.correction contracts. The exporter's key order within an object is not stable between runs; the contracts are.",
   "BRIEF": {
     "allowed_outcomes": [
@@ -13,9 +13,9 @@
       ],
       "properties": {
         "whatThisSays": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         }
       }
     },
@@ -35,17 +35,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -73,215 +73,6 @@
         "changes"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -298,17 +89,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -319,41 +99,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -362,15 +142,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -378,21 +169,230 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "reply": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "changes": {
           "items": {
@@ -404,19 +404,19 @@
             ],
             "properties": {
               "before": {
-                "type": "string",
+                "maxLength": 400,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "after": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
+                "type": "string"
               },
               "heading": {
-                "type": "string",
+                "maxLength": 160,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
+                "type": "string"
+              },
+              "after": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               }
             }
           },
@@ -439,215 +439,6 @@
         "normalization_rationale"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -664,17 +455,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -685,41 +465,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -728,15 +508,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -744,16 +535,225 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         }
       }
     },
@@ -773,17 +773,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -809,9 +809,9 @@
       ],
       "properties": {
         "statement": {
-          "type": "string",
+          "maxLength": 400,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 400
+          "type": "string"
         }
       }
     },
@@ -831,17 +831,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -869,14 +869,9 @@
       ],
       "properties": {
         "rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
-        },
-        "statement": {
-          "type": "string",
-          "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 400
+          "type": "string"
         },
         "carries": {
           "items": {
@@ -884,6 +879,11 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "statement": {
+          "maxLength": 400,
+          "pattern": "^(?!.*(https?://|www\\.))",
+          "type": "string"
         }
       }
     },
@@ -903,17 +903,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -938,11 +938,11 @@
         "anchorings"
       ],
       "properties": {
-        "flags": {
+        "unprompted": {
           "items": {
-            "type": "string",
+            "maxLength": 400,
             "pattern": "^(?!.*(https?://|www\\.))",
-            "maxLength": 400
+            "type": "string"
           },
           "type": "array",
           "maxItems": 8
@@ -951,32 +951,41 @@
           "items": {
             "type": "object",
             "required": [
+              "stage",
               "anchorId",
               "anchoring"
             ],
             "properties": {
+              "stage": {
+                "enum": [
+                  "PROBLEM",
+                  "SOLUTION",
+                  "COMMERCIAL"
+                ],
+                "type": "string"
+              },
               "anchorId": {
-                "type": "string",
+                "maxLength": 160,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
+                "type": "string"
               },
               "anchoring": {
-                "type": "string",
                 "enum": [
                   "ANCHORED",
                   "GUESSED"
-                ]
+                ],
+                "type": "string"
               }
             }
           },
           "type": "array",
           "maxItems": 8
         },
-        "unprompted": {
+        "flags": {
           "items": {
-            "type": "string",
+            "maxLength": 400,
             "pattern": "^(?!.*(https?://|www\\.))",
-            "maxLength": 400
+            "type": "string"
           },
           "type": "array",
           "maxItems": 8
@@ -1002,215 +1011,6 @@
         "changes"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -1227,17 +1027,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -1248,41 +1037,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -1291,15 +1080,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -1307,21 +1107,230 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "reply": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "changes": {
           "items": {
@@ -1333,19 +1342,19 @@
             ],
             "properties": {
               "before": {
-                "type": "string",
+                "maxLength": 400,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "after": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
+                "type": "string"
               },
               "heading": {
-                "type": "string",
+                "maxLength": 160,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
+                "type": "string"
+              },
+              "after": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               }
             }
           },
@@ -1368,215 +1377,6 @@
         "normalization_rationale"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -1593,17 +1393,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -1614,41 +1403,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -1657,15 +1446,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -1673,16 +1473,225 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         }
       }
     },
@@ -1702,17 +1711,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -1738,9 +1747,9 @@
       ],
       "properties": {
         "statement": {
-          "type": "string",
+          "maxLength": 400,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 400
+          "type": "string"
         }
       }
     },
@@ -1760,17 +1769,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -1798,215 +1807,6 @@
         "changes"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -2023,17 +1823,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -2044,41 +1833,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -2087,15 +1876,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -2103,21 +1903,230 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "reply": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         },
         "changes": {
           "items": {
@@ -2129,19 +2138,19 @@
             ],
             "properties": {
               "before": {
-                "type": "string",
+                "maxLength": 400,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "after": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
+                "type": "string"
               },
               "heading": {
-                "type": "string",
+                "maxLength": 160,
                 "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
+                "type": "string"
+              },
+              "after": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               }
             }
           },
@@ -2164,215 +2173,6 @@
         "normalization_rationale"
       ],
       "properties": {
-        "assumptions": {
-          "items": {
-            "type": "object",
-            "required": [
-              "heading",
-              "statement",
-              "risk",
-              "mark",
-              "expectation",
-              "selection",
-              "role"
-            ],
-            "properties": {
-              "role": {
-                "type": "object",
-                "properties": {
-                  "reuse": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "new": {
-                    "type": "object",
-                    "required": [
-                      "label",
-                      "roleType",
-                      "about"
-                    ],
-                    "properties": {
-                      "roleType": {
-                        "type": "string",
-                        "enum": [
-                          "CONSUMER",
-                          "PRACTITIONER",
-                          "MANAGER",
-                          "BUYER",
-                          "GATEKEEPER"
-                        ]
-                      },
-                      "market": {
-                        "type": "object",
-                        "required": [
-                          "country",
-                          "language"
-                        ],
-                        "properties": {
-                          "language": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "region": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "country": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 2
-                          }
-                        }
-                      },
-                      "about": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 240
-                      },
-                      "label": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      }
-                    }
-                  }
-                }
-              },
-              "heading": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "risk": {
-                "type": "string",
-                "enum": [
-                  "LOAD_BEARING",
-                  "SUPPORTING"
-                ]
-              },
-              "statement": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 400
-              },
-              "selection": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              },
-              "mark": {
-                "type": "string",
-                "enum": [
-                  "DIRECT",
-                  "PROXY"
-                ]
-              },
-              "expectation": {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "measure": {
-                    "type": "object",
-                    "required": [
-                      "kind",
-                      "unit"
-                    ],
-                    "properties": {
-                      "unit": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "per": {
-                        "type": "string",
-                        "pattern": "^(?!.*(https?://|www\\.))",
-                        "maxLength": 160
-                      },
-                      "kind": {
-                        "type": "string",
-                        "enum": [
-                          "COUNT",
-                          "DURATION",
-                          "MONEY",
-                          "SHARE",
-                          "RATE",
-                          "TIME_SINCE",
-                          "PHYSICAL"
-                        ]
-                      }
-                    }
-                  },
-                  "lower": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "expected": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
-                  },
-                  "upper": {
-                    "type": "object",
-                    "required": [
-                      "value"
-                    ],
-                    "properties": {
-                      "value": {
-                        "type": "number"
-                      },
-                      "exact": {
-                        "type": "boolean"
-                      },
-                      "inclusive": {
-                        "type": "boolean"
-                      }
-                    }
-                  },
-                  "options": {
-                    "items": {
-                      "type": "string",
-                      "pattern": "^(?!.*(https?://|www\\.))",
-                      "maxLength": 160
-                    },
-                    "type": "array"
-                  },
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "INTERVAL",
-                      "CHOICE"
-                    ]
-                  }
-                }
-              },
-              "founderPhrase": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 160
-              }
-            }
-          },
-          "type": "array",
-          "maxItems": 8
-        },
         "questionnaire": {
           "type": "object",
           "required": [
@@ -2389,17 +2189,6 @@
                   "selections"
                 ],
                 "properties": {
-                  "taps": {
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "HASNT_HAPPENED",
-                        "CANT_RECALL",
-                        "RATHER_NOT_SAY"
-                      ]
-                    },
-                    "type": "array"
-                  },
                   "selections": {
                     "items": {
                       "type": "object",
@@ -2410,41 +2199,41 @@
                         "escape"
                       ],
                       "properties": {
-                        "escape": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "id": {
+                          "maxLength": 160,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
                         },
-                        "options": {
-                          "items": {
-                            "type": "string",
-                            "pattern": "^(?!.*(https?://|www\\.))",
-                            "maxLength": 160
-                          },
-                          "type": "array"
+                        "prompt": {
+                          "maxLength": 300,
+                          "pattern": "^(?!.*(https?://|www\\.))",
+                          "type": "string"
+                        },
+                        "control": {
+                          "enum": [
+                            "BUCKETS",
+                            "OPTIONS"
+                          ],
+                          "type": "string"
                         },
                         "multiSelect": {
                           "type": "boolean"
                         },
-                        "control": {
-                          "type": "string",
-                          "enum": [
-                            "BUCKETS",
-                            "OPTIONS"
-                          ]
+                        "options": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
-                        "prompt": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 300
-                        },
-                        "id": {
-                          "type": "string",
-                          "pattern": "^(?!.*(https?://|www\\.))",
-                          "maxLength": 160
+                        "escape": {
+                          "items": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "type": "array"
                         },
                         "other": {
                           "type": "boolean"
@@ -2453,15 +2242,26 @@
                     },
                     "type": "array"
                   },
-                  "prompt": {
-                    "type": "string",
-                    "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 300
+                  "taps": {
+                    "items": {
+                      "enum": [
+                        "HASNT_HAPPENED",
+                        "CANT_RECALL",
+                        "RATHER_NOT_SAY"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "array"
                   },
                   "id": {
-                    "type": "string",
+                    "maxLength": 160,
                     "pattern": "^(?!.*(https?://|www\\.))",
-                    "maxLength": 160
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "maxLength": 300,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
                   }
                 }
               },
@@ -2469,16 +2269,225 @@
               "maxItems": 8
             },
             "introduction": {
-              "type": "string",
+              "maxLength": 300,
               "pattern": "^(?!.*(https?://|www\\.))",
-              "maxLength": 300
+              "type": "string"
             }
           }
         },
+        "assumptions": {
+          "items": {
+            "type": "object",
+            "required": [
+              "heading",
+              "statement",
+              "risk",
+              "mark",
+              "expectation",
+              "selection",
+              "role"
+            ],
+            "properties": {
+              "expectation": {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "upper": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "expected": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "lower": {
+                    "type": "object",
+                    "required": [
+                      "value"
+                    ],
+                    "properties": {
+                      "exact": {
+                        "type": "boolean"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "inclusive": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "measure": {
+                    "type": "object",
+                    "required": [
+                      "kind",
+                      "unit"
+                    ],
+                    "properties": {
+                      "unit": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "kind": {
+                        "enum": [
+                          "COUNT",
+                          "DURATION",
+                          "MONEY",
+                          "SHARE",
+                          "RATE",
+                          "TIME_SINCE",
+                          "PHYSICAL"
+                        ],
+                        "type": "string"
+                      },
+                      "per": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "type": {
+                    "enum": [
+                      "INTERVAL",
+                      "CHOICE"
+                    ],
+                    "type": "string"
+                  },
+                  "options": {
+                    "items": {
+                      "maxLength": 160,
+                      "pattern": "^(?!.*(https?://|www\\.))",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                }
+              },
+              "mark": {
+                "enum": [
+                  "DIRECT",
+                  "PROXY"
+                ],
+                "type": "string"
+              },
+              "selection": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "statement": {
+                "maxLength": 400,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "risk": {
+                "enum": [
+                  "LOAD_BEARING",
+                  "SUPPORTING"
+                ],
+                "type": "string"
+              },
+              "heading": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              },
+              "role": {
+                "type": "object",
+                "properties": {
+                  "reuse": {
+                    "maxLength": 160,
+                    "pattern": "^(?!.*(https?://|www\\.))",
+                    "type": "string"
+                  },
+                  "new": {
+                    "type": "object",
+                    "required": [
+                      "label",
+                      "roleType",
+                      "about"
+                    ],
+                    "properties": {
+                      "about": {
+                        "maxLength": 240,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      },
+                      "market": {
+                        "type": "object",
+                        "required": [
+                          "country",
+                          "language"
+                        ],
+                        "properties": {
+                          "region": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "language": {
+                            "maxLength": 160,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "pattern": "^(?!.*(https?://|www\\.))",
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "roleType": {
+                        "enum": [
+                          "CONSUMER",
+                          "PRACTITIONER",
+                          "MANAGER",
+                          "BUYER",
+                          "GATEKEEPER"
+                        ],
+                        "type": "string"
+                      },
+                      "label": {
+                        "maxLength": 160,
+                        "pattern": "^(?!.*(https?://|www\\.))",
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "founderPhrase": {
+                "maxLength": 160,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
+              }
+            }
+          },
+          "type": "array",
+          "maxItems": 8
+        },
         "normalization_rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
+          "type": "string"
         }
       }
     },
@@ -2498,17 +2507,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -2534,9 +2543,9 @@
       ],
       "properties": {
         "statement": {
-          "type": "string",
+          "maxLength": 400,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 400
+          "type": "string"
         }
       }
     },
@@ -2556,17 +2565,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",
@@ -2594,14 +2603,9 @@
       ],
       "properties": {
         "rationale": {
-          "type": "string",
+          "maxLength": 1200,
           "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 1200
-        },
-        "statement": {
-          "type": "string",
-          "pattern": "^(?!.*(https?://|www\\.))",
-          "maxLength": 400
+          "type": "string"
         },
         "carries": {
           "items": {
@@ -2609,6 +2613,11 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "statement": {
+          "maxLength": 400,
+          "pattern": "^(?!.*(https?://|www\\.))",
+          "type": "string"
         }
       }
     },
@@ -2628,17 +2637,17 @@
               "required"
             ],
             "properties": {
-              "required": {
-                "type": "boolean"
+              "question": {
+                "maxLength": 300,
+                "pattern": "^(?!.*(https?://|www\\.))",
+                "type": "string"
               },
               "input_type": {
                 "pattern": "^(?!.*(https?://|www\\.))",
                 "type": "string"
               },
-              "question": {
-                "type": "string",
-                "pattern": "^(?!.*(https?://|www\\.))",
-                "maxLength": 300
+              "required": {
+                "type": "boolean"
               },
               "id": {
                 "pattern": "^(?!.*(https?://|www\\.))",

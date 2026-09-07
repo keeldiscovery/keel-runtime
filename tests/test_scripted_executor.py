@@ -259,16 +259,20 @@ class ScriptedExecutorAcceptanceTest(unittest.TestCase):
 
 
 class InterpretResolutionTest(unittest.TestCase):
-    """RT-002: invitationId is filled; anchorId passes through, checked against `anchors[]`."""
+    """RT-002: invitationId is filled; `{stage, anchorId}` passes through, checked against
+    `anchors[]` by the pair -- an anchor id is unique only within its own stage (keel-cloud
+    design decision 18 / rule Q7, DRIFT #37)."""
 
     def _context(self):
         return {
             "invitation_id": "invitation-42",
             "anchors": [
-                {"anchor_id": "A1", "prompt": "Tell us what happened.",
+                {"stage": "PROBLEM", "anchor_id": "A1", "prompt": "Tell us what happened.",
                  "text": "The crates were two short.", "tap": None},
-                {"anchor_id": "A2", "prompt": "And the one before?",
+                {"stage": "PROBLEM", "anchor_id": "A2", "prompt": "And the one before?",
                  "text": "Last month, same supplier.", "tap": None},
+                {"stage": "SOLUTION", "anchor_id": "A1", "prompt": "And with the fix?",
+                 "text": "Just last week, it matched.", "tap": None},
             ],
         }
 
@@ -281,26 +285,43 @@ class InterpretResolutionTest(unittest.TestCase):
         })
 
     def test_invitation_id_is_filled_from_context(self):
-        executor = self._executor([{"anchorId": "A1", "anchoring": "ANCHORED"}])
+        executor = self._executor([{"stage": "PROBLEM", "anchorId": "A1", "anchoring": "ANCHORED"}])
         response = executor.execute(_request(self._context()))
         self.assertEqual(response["result"]["invitationId"], "invitation-42")
 
-    def test_anchor_id_passes_through_unchanged(self):
+    def test_stage_and_anchor_id_pass_through_unchanged(self):
+        """Includes the same anchor id answered once per stage (PROBLEM's A1 and SOLUTION's
+        A1 in this link) -- each is its own occasion, not a repeat."""
         executor = self._executor([
-            {"anchorId": "A1", "anchoring": "ANCHORED"},
-            {"anchorId": "A2", "anchoring": "GUESSED"},
+            {"stage": "PROBLEM", "anchorId": "A1", "anchoring": "ANCHORED"},
+            {"stage": "PROBLEM", "anchorId": "A2", "anchoring": "GUESSED"},
+            {"stage": "SOLUTION", "anchorId": "A1", "anchoring": "GUESSED"},
         ])
         response = executor.execute(_request(self._context()))
         self.assertEqual(
-            [a["anchorId"] for a in response["result"]["anchorings"]], ["A1", "A2"])
+            [(a["stage"], a["anchorId"]) for a in response["result"]["anchorings"]],
+            [("PROBLEM", "A1"), ("PROBLEM", "A2"), ("SOLUTION", "A1")])
         self.assertEqual(
-            [a["anchoring"] for a in response["result"]["anchorings"]], ["ANCHORED", "GUESSED"])
+            [a["anchoring"] for a in response["result"]["anchorings"]],
+            ["ANCHORED", "GUESSED", "GUESSED"])
 
     def test_an_anchor_the_context_does_not_carry_is_refused_naming_it(self):
-        executor = self._executor([{"anchorId": "A9", "anchoring": "ANCHORED"}])
-        with self.assertRaises(ExecutorUnavailable) as ctx:
-            executor.execute(_request(self._context()))
-        self.assertIn("A9", str(ctx.exception))
+        with self.subTest("unknown id"):
+            executor = self._executor(
+                [{"stage": "PROBLEM", "anchorId": "A9", "anchoring": "ANCHORED"}])
+            with self.assertRaises(ExecutorUnavailable) as ctx:
+                executor.execute(_request(self._context()))
+            self.assertIn("A9", str(ctx.exception))
+
+        with self.subTest("known id, wrong stage"):
+            # A1 exists under SOLUTION in this context, but not COMMERCIAL -- the bare id is
+            # not enough; the stage has to match too.
+            executor = self._executor(
+                [{"stage": "COMMERCIAL", "anchorId": "A1", "anchoring": "ANCHORED"}])
+            with self.assertRaises(ExecutorUnavailable) as ctx:
+                executor.execute(_request(self._context()))
+            self.assertIn("A1", str(ctx.exception))
+            self.assertIn("COMMERCIAL", str(ctx.exception))
 
     def test_a_blank_anchor_is_not_in_the_context_and_so_cannot_be_answered(self):
         """`ScreenContextBuilder.anchorsWritten` omits a blank answer entirely. A script that
@@ -308,15 +329,15 @@ class InterpretResolutionTest(unittest.TestCase):
         context = self._context()
         context["anchors"] = [context["anchors"][0]]
         executor = self._executor([
-            {"anchorId": "A1", "anchoring": "ANCHORED"},
-            {"anchorId": "A2", "anchoring": "GUESSED"},
+            {"stage": "PROBLEM", "anchorId": "A1", "anchoring": "ANCHORED"},
+            {"stage": "PROBLEM", "anchorId": "A2", "anchoring": "GUESSED"},
         ])
         with self.assertRaises(ExecutorUnavailable) as ctx:
             executor.execute(_request(context))
         self.assertIn("A2", str(ctx.exception))
 
     def test_the_source_entry_is_not_mutated_between_calls(self):
-        executor = self._executor([{"anchorId": "A1", "anchoring": "ANCHORED"}])
+        executor = self._executor([{"stage": "PROBLEM", "anchorId": "A1", "anchoring": "ANCHORED"}])
         first = executor.execute(_request(self._context()))
         second = executor.execute(_request(self._context()))
         self.assertEqual(first["result"]["anchorings"], second["result"]["anchorings"])
@@ -352,7 +373,8 @@ class BundledScriptContractValidityTest(unittest.TestCase):
                 if screen == "INTERPRET":
                     context = {
                         "invitation_id": "invitation-1",
-                        "anchors": [{"anchor_id": "A1", "prompt": "p", "text": "t", "tap": None}],
+                        "anchors": [{"stage": "PROBLEM", "anchor_id": "A1", "prompt": "p",
+                                     "text": "t", "tap": None}],
                     }
                 response = executor.execute(_request(context))
                 validate_response(response, self.contracts[screen])
@@ -388,6 +410,7 @@ class BundledScriptContractValidityTest(unittest.TestCase):
             with self.subTest(entry=index):
                 self.assertEqual(entry["outcome"], "COMPLETED")
                 for anchoring in entry["result"]["anchorings"]:
+                    self.assertEqual(anchoring["stage"], "PROBLEM")
                     self.assertIn(anchoring["anchorId"], anchor_ids)
                     self.assertIn(anchoring["anchoring"], ("ANCHORED", "GUESSED"))
 

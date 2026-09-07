@@ -1,9 +1,9 @@
 {
   "_description": "The PROBLEM stage of keel-cloud's frozen golden corpus entry 01-countly (Countly — restaurant inventory mismatches), in the result shapes keel-cloud's screenContracts export currently serves. The bundled default for `--executor scripted` with no --script.",
   "_source": "keel-cloud canon/designs/measured-beliefs/corpus/01-countly.yaml",
-  "_keel_cloud_commit": "89a2315",
+  "_keel_cloud_commit": "932fdfe",
   "_generated_by": "tools/generate_bundled_script.py -- never hand-edited",
-  "_generated_at": "2026-09-07T13:28:28Z",
+  "_generated_at": "2026-09-07T20:58:02Z",
   "PROBLEM_FRAME": [
     {
       "outcome": "COMPLETED",
@@ -309,6 +309,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -322,6 +323,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "GUESSED"
           }
@@ -335,6 +337,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -348,6 +351,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -361,6 +365,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -374,6 +379,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "GUESSED"
           }
@@ -387,6 +393,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -400,6 +407,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -413,6 +421,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -426,6 +435,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
@@ -439,6 +449,7 @@
       "result": {
         "anchorings": [
           {
+            "stage": "PROBLEM",
             "anchorId": "A1",
             "anchoring": "ANCHORED"
           }
