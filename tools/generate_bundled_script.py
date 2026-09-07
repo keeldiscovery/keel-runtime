@@ -20,10 +20,32 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+
+#: keel-cloud's `Overview.whatThisSays` contract (spec 030, `ScreenResponseContracts.briefSchema`):
+#: a non-blank string, at most 1200 code points, carrying no link. Enforced here too -- a
+#: generator that could exceed its own target's contract would be inventing, not composing.
+BRIEF_MAX_CODEPOINTS = 1200
+BRIEF_LINK_PATTERN = re.compile(r"https?://|www\.", re.IGNORECASE)
+
+#: The stage order the composed brief walks, and the plain word each stage reads as in a
+#: sentence. Fixed, not derived -- `expected.stages` is always these three keys.
+BRIEF_STAGE_ORDER = ("PROBLEM", "SOLUTION", "COMMERCIAL")
+BRIEF_STAGE_WORD = {"PROBLEM": "the problem claim", "SOLUTION": "the solution claim",
+                    "COMMERCIAL": "the commercial claim"}
+
+#: One deterministic sentence per verdict the corpus's `expected.stages` actually carries
+#: across all seven entries (verified: only these three ever appear there). A verdict outside
+#: this table is a refusal, not a guess at new prose.
+BRIEF_VERDICT_SENTENCE = {
+    "SUPPORTED": "{stage} held up against what people reported.",
+    "MIXED": "{stage} came back mixed -- part of it held, part of it didn't.",
+    "CONTRADICTED": "{stage} was contradicted by what people reported.",
+}
 
 # The corpus writes a tap the way a person reads it; the wire wants the enum name. Same table
 # keel-e2e-eval's `instructions/context.py` carries, and for the same reason: this is the only
@@ -60,6 +82,44 @@ def expectation_for(belief: dict) -> dict:
 
 class Refusal(RuntimeError):
     """A value the corpus does not carry. Named, never invented."""
+
+
+def brief_for(entry: dict) -> dict:
+    """One `BRIEF` entry: a plain paragraph composed from `expected.stages`, never a model's
+    own words -- DRIFT #42. The executor repeats the last entry of a screen once its script is
+    exhausted, so exactly one is enough.
+
+    The first sentence marks the paragraph as scripted (this is a corpus reading, not a live
+    judgment); one further sentence per stage names its verdict, in a fixed stage order. Both
+    the length cap and the no-link rule are keel-cloud's own `Overview.whatThisSays` contract
+    (spec 030) -- enforced here as a refusal, not silently truncated or rewritten, because a
+    generator that could exceed the contract it targets would be inventing, not composing.
+    """
+    stages = (entry.get("expected") or {}).get("stages") or {}
+    if not stages:
+        raise Refusal(f"{entry['id']} carries no expected.stages to compose a brief from")
+
+    sentences = ["This is a scripted reading of the corpus, not a live judgment."]
+    for stage in BRIEF_STAGE_ORDER:
+        verdict = stages.get(stage)
+        if verdict is None:
+            continue
+        template = BRIEF_VERDICT_SENTENCE.get(verdict)
+        if template is None:
+            raise Refusal(
+                f"{entry['id']} stage {stage} carries verdict {verdict!r}, outside the table")
+        sentence = template.format(stage=BRIEF_STAGE_WORD[stage])
+        sentences.append(sentence[0].upper() + sentence[1:])
+
+    what_this_says = " ".join(sentences)
+    if len(what_this_says) > BRIEF_MAX_CODEPOINTS:
+        raise Refusal(
+            f"{entry['id']}'s composed brief is {len(what_this_says)} code points, over the "
+            f"{BRIEF_MAX_CODEPOINTS} cap")
+    if BRIEF_LINK_PATTERN.search(what_this_says):
+        raise Refusal(f"{entry['id']}'s composed brief contains a link")
+
+    return {"BRIEF": [{"outcome": "COMPLETED", "result": {"whatThisSays": what_this_says}}]}
 
 
 def tap_enum(tap):
@@ -149,7 +209,7 @@ def build(entry: dict, stage: str) -> dict:
             interpret.append({"outcome": "COMPLETED",
                               "result": {"anchorings": anchorings, "unprompted": [], "flags": []}})
 
-    return {
+    script = {
         frame_screen: [{"outcome": "COMPLETED", "result": {"statement": statement}}],
         assumptions_screen: [{
             "outcome": "COMPLETED",
@@ -168,6 +228,10 @@ def build(entry: dict, stage: str) -> dict:
         }],
         "INTERPRET": interpret,
     }
+    # BRIEF is a whole-project screen, not scoped to `stage` -- it walks every stage in
+    # `expected.stages` regardless of which one this bundled script's FRAME/ASSUMPTIONS cover.
+    script.update(brief_for(entry))
+    return script
 
 
 def main() -> int:

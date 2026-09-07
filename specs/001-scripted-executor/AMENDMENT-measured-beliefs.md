@@ -161,6 +161,33 @@ the context does not carry. `countly-problem.json` was regenerated from the stil
 `01-countly` corpus; every one of its eleven `INTERPRET` entries now carries `"stage": "PROBLEM"`
 alongside its `anchorId`, since the bundled script covers only that stage.
 
+**Follow-on fix, 2026-09-07 (DRIFT #42)**: the bundled script carried no `BRIEF` entry, so every
+reading run off it failed the job keel-cloud's spec 030 starts automatically after a batch
+finishes (`ReadingBatchService.sayWhatThisSays`), with `LLM_UNAVAILABLE: scripted executor has no
+entry for BRIEF` -- swallowed by that method's own `catch`, so the founder was left reading the
+overview's "nothing to say yet" note forever. `tools/generate_bundled_script.py` gains
+`brief_for(entry)`: one `BRIEF` entry, a plain paragraph composed **deterministically** from the
+corpus entry's `expected.stages` verdicts -- a first sentence marking the paragraph as scripted,
+then one further sentence per stage (`PROBLEM`, `SOLUTION`, `COMMERCIAL`, in that fixed order,
+skipping a stage `expected.stages` omits) -- refusing, rather than truncating or inventing, a
+paragraph that would exceed keel-cloud's own `Overview.whatThisSays` contract (spec 030,
+`ScreenResponseContracts.briefSchema`: non-blank, ≤1200 code points, no link) or a verdict outside
+the three the corpus's seven entries actually carry (`SUPPORTED`, `MIXED`, `CONTRADICTED`). `BRIEF`
+is a whole-project screen, not scoped to `--stage`, so `build()` now calls `brief_for` unconditionally
+and merges its one key into whatever stage's `FRAME`/`ASSUMPTIONS` were requested. The corpus itself
+was not touched -- only the generator and its output. `countly-problem.json` was regenerated
+(same corpus, same keel-cloud commit `932fdfe`; only `BRIEF` and `_generated_at` differ) and now
+carries `PROBLEM_FRAME`, `PROBLEM_ASSUMPTIONS`, `INTERPRET` and `BRIEF`. Tests:
+`tests/test_generate_bundled_script.py` (new) exercises `brief_for` directly -- shape, the
+scripted-marker first sentence, one sentence per present stage in fixed order, determinism, a
+missing/empty `expected.stages` refusal, an out-of-table verdict refusal, and the cap/link
+refusals (forced via a monkeypatched oversized/linking verdict sentence, since no real corpus
+entry is anywhere near 1200 code points); `tests/test_scripted_executor.py` gains a `BRIEF` row in
+`BundledScriptContractValidityTest`'s per-screen contract sweep plus two dedicated tests --
+a `BRIEF` request returns the bundled entry and it validates against the vendored contract, and
+the entry repeats once exhausted (one entry is enough, per the executor's own repeat-the-last-entry
+contract). `python -m pytest` stays green, 181 now (169 before this fix).
+
 ## What is *not* changed
 
 - The poll loop, `response_validator`, `complete`/`fail`, the stub executor, the claude-code

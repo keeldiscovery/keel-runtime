@@ -3,7 +3,7 @@
   "_source": "keel-cloud canon/designs/measured-beliefs/corpus/01-countly.yaml",
   "_keel_cloud_commit": "932fdfe",
   "_generated_by": "tools/generate_bundled_script.py -- never hand-edited",
-  "_generated_at": "2026-09-07T20:58:02Z",
+  "_generated_at": "2026-09-07T23:02:35Z",
   "PROBLEM_FRAME": [
     {
       "outcome": "COMPLETED",
@@ -456,6 +456,14 @@
         ],
         "unprompted": [],
         "flags": []
+      }
+    }
+  ],
+  "BRIEF": [
+    {
+      "outcome": "COMPLETED",
+      "result": {
+        "whatThisSays": "This is a scripted reading of the corpus, not a live judgment. The problem claim was contradicted by what people reported. The solution claim came back mixed -- part of it held, part of it didn't. The commercial claim held up against what people reported."
       }
     }
   ]

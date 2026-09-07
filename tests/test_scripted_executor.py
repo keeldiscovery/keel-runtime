@@ -358,7 +358,7 @@ class BundledScriptContractValidityTest(unittest.TestCase):
         self.assertIn("01-countly", self.script["_source"])
         self.assertEqual(
             {k for k in self.script if not k.startswith("_")},
-            {"PROBLEM_FRAME", "PROBLEM_ASSUMPTIONS", "INTERPRET"},
+            {"PROBLEM_FRAME", "PROBLEM_ASSUMPTIONS", "INTERPRET", "BRIEF"},
         )
 
     def test_it_names_the_keel_cloud_commit_its_shapes_came_from(self):
@@ -366,7 +366,7 @@ class BundledScriptContractValidityTest(unittest.TestCase):
         self.assertIn("generate_bundled_script.py", self.script["_generated_by"])
 
     def test_every_screen_exercised_once_validates_against_its_contract(self):
-        for screen in ("PROBLEM_FRAME", "PROBLEM_ASSUMPTIONS", "INTERPRET"):
+        for screen in ("PROBLEM_FRAME", "PROBLEM_ASSUMPTIONS", "INTERPRET", "BRIEF"):
             with self.subTest(screen=screen):
                 executor = ScriptedExecutor(self.script)
                 context = _context_for(self.keys[screen])
@@ -378,6 +378,30 @@ class BundledScriptContractValidityTest(unittest.TestCase):
                     }
                 response = executor.execute(_request(context))
                 validate_response(response, self.contracts[screen])
+
+    def test_a_brief_request_returns_the_bundled_entry_and_it_validates(self):
+        """DRIFT #42: the bundled script now carries one `BRIEF` entry -- keel-cloud's
+        own automatic post-reading job (spec 030) no longer fails
+        `scripted executor has no entry for BRIEF`."""
+        executor = ScriptedExecutor(self.script)
+        context = _context_for(self.keys["BRIEF"])
+        response = executor.execute(_request(context))
+        self.assertEqual(response, self.script["BRIEF"][0])
+        validate_response(response, self.contracts["BRIEF"])
+        says = response["result"]["whatThisSays"]
+        self.assertTrue(says.strip())
+        self.assertLessEqual(len(says), 1200)
+        self.assertNotIn("http://", says)
+        self.assertNotIn("https://", says)
+        self.assertNotIn("www.", says)
+
+    def test_the_brief_entry_repeats_once_exhausted(self):
+        """One entry suffices: `ScriptedExecutor` repeats a screen's last entry forever."""
+        executor = ScriptedExecutor(self.script)
+        context = _context_for(self.keys["BRIEF"])
+        first = executor.execute(_request(context))
+        second = executor.execute(_request(context, turn_number=2))
+        self.assertEqual(first, second)
 
     def test_it_carries_no_retired_vocabulary(self):
         blob = json.dumps(self.script)
