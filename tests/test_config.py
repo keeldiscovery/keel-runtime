@@ -14,6 +14,7 @@ _ENV_KEYS = (
     "KEEL_HOME",
     "KEEL_CREDENTIAL_BACKEND",
     "KEEL_SCRIPT",
+    "KEEL_CONTEXT_KEYS",
     "KEEL_JOB_BUDGET_USD",
     "KEEL_JOB_MAX_TURNS",
     "KEEL_JOB_TIMEOUT_SECONDS",
@@ -44,6 +45,7 @@ class ConfigPrecedenceTest(unittest.TestCase):
             credential_backend=None,
             no_browser=False,
             script=None,
+            context_keys=None,
         )
         base.update(overrides)
         return Namespace(**base)
@@ -108,6 +110,34 @@ class ConfigPrecedenceTest(unittest.TestCase):
         os.environ["KEEL_SCRIPT"] = "/env/script.json"
         config = config_module.load(self._args())
         self.assertEqual(config.script_path, "/env/script.json")
+
+    # spec 001-scripted-executor AMENDMENT-measured-beliefs RT-001 --------------------
+
+    def test_context_keys_defaults_to_none_meaning_the_bundled_copy(self):
+        config = config_module.load(self._args(base_url="http://flag"))
+        self.assertIsNone(config.context_keys_path)
+
+    def test_context_keys_flag_wins_over_env(self):
+        os.environ["KEEL_CONTEXT_KEYS"] = "/env/context-keys.json"
+        config = config_module.load(
+            self._args(base_url="http://flag", context_keys="/flag/context-keys.json")
+        )
+        self.assertEqual(config.context_keys_path, "/flag/context-keys.json")
+
+    def test_context_keys_env_wins_over_file(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "context_keys": "/file/context-keys.json"})
+        )
+        os.environ["KEEL_CONTEXT_KEYS"] = "/env/context-keys.json"
+        config = config_module.load(self._args())
+        self.assertEqual(config.context_keys_path, "/env/context-keys.json")
+
+    def test_context_keys_file_is_read_when_nothing_else_sets_it(self):
+        (self.home / "config.json").write_text(
+            json.dumps({"base_url": "http://flag", "context_keys": "/file/context-keys.json"})
+        )
+        config = config_module.load(self._args())
+        self.assertEqual(config.context_keys_path, "/file/context-keys.json")
 
     # spec 002-words-are-words FR-007, amended by FR-009 -----------------------------
 

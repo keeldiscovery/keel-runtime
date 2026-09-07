@@ -493,7 +493,7 @@ _EXECUTORS = {
 }
 
 
-_DEFAULT_SCRIPT_PATH = Path(__file__).parent / "testing" / "scripts" / "payroll-exceptions.json"
+_DEFAULT_SCRIPT_PATH = Path(__file__).parent / "testing" / "scripts" / "countly-problem.json"
 
 
 def get_executor(
@@ -503,6 +503,7 @@ def get_executor(
     budget_usd: float = DEFAULT_JOB_BUDGET_USD,
     max_turns: int = DEFAULT_JOB_MAX_TURNS,
     timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+    context_keys_path: str | Path | None = None,
 ) -> Executor:
     if name == "stub":
         # Lazy import: keel_runtime.testing is a test-only dependency of the package,
@@ -518,7 +519,7 @@ def get_executor(
         path = Path(script_path) if script_path else _DEFAULT_SCRIPT_PATH
         with open(path, "r", encoding="utf-8") as handle:
             script = json.load(handle)
-        return ScriptedExecutor(script)
+        return ScriptedExecutor(script, context_keys_path=context_keys_path)
 
     factory = _EXECUTORS.get(name)
     if factory is None:

@@ -6,6 +6,12 @@ the executor exposes `last_envelope`/`last_request_sections`/`last_events`, a no
 one that doesn't, e.g. the scripted/stub executors), the `/fail` message shape
 (`<code>: <=200 chars>`, never model output), no-retry on failure, and pruning job
 directories to the newest 50.
+
+Also, since spec 001-scripted-executor's `AMENDMENT-measured-beliefs.md`: one pass of a **real**
+`ScriptedExecutor` through `_handle_job`, so the poller and the rebuilt executor are proved to
+still fit together -- the screen inferred from a current context, the reading's `invitationId`
+filled from it, the completed response handed to `/complete` unchanged, and no job directory
+written (a scripted executor exposes none of the three log attributes).
 """
 from __future__ import annotations
 
@@ -19,6 +25,18 @@ from types import SimpleNamespace
 
 from keel_runtime.executor import ExecutorUnavailable
 from keel_runtime.poller import JOB_DIR_RETENTION, _handle_job, _prune_job_dirs
+from keel_runtime.testing.scripted_executor import (
+    DEFAULT_CONTEXT_KEYS_PATH,
+    ScriptedExecutor,
+)
+
+BUNDLED_SCRIPT_PATH = (
+    Path(__file__).parent.parent
+    / "keel_runtime"
+    / "testing"
+    / "scripts"
+    / "countly-problem.json"
+)
 
 
 class _FakeClient:
@@ -239,6 +257,105 @@ class PruneJobDirsTest(unittest.TestCase):
         (jobs_dir / "job-b").mkdir()
         _prune_job_dirs(self.home)
         self.assertEqual({entry.name for entry in jobs_dir.iterdir()}, {"job-a", "job-b"})
+
+
+class ScriptedExecutorThroughPollerTest(unittest.TestCase):
+    """The rebuilt executor, driven by the poller the way a real run drives it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.config = SimpleNamespace(home=Path(self._tmp.name))
+        self.state = SimpleNamespace(access_token="tok")
+        self.client = _FakeClient()
+        with open(BUNDLED_SCRIPT_PATH, "r", encoding="utf-8") as handle:
+            self.script = json.load(handle)
+        with open(DEFAULT_CONTEXT_KEYS_PATH, "r", encoding="utf-8") as handle:
+            self.keys = json.load(handle)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _job(self, context, contract):
+        return {
+            "job_id": "job-1",
+            "interaction_id": "interaction-1",
+            "turn_number": 1,
+            "request_payload": {
+                "context": context,
+                "interaction_history": [],
+                "response_contract": contract,
+            },
+        }
+
+    def test_a_framing_job_completes_from_the_bundled_script(self):
+        executor = ScriptedExecutor(self.script)
+        context = {key: None for key in self.keys["PROBLEM_FRAME"]}
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {
+                "type": "object",
+                "required": ["statement"],
+                "properties": {"statement": {"type": "string"}},
+            },
+        }
+        _handle_job(self.client, self.state, executor, self._job(context, contract), self.config)
+
+        self.assertEqual(self.client.failed, [])
+        self.assertEqual(len(self.client.completed), 1)
+        job_id, token, response = self.client.completed[0]
+        self.assertEqual((job_id, token), ("job-1", "tok"))
+        self.assertEqual(response["outcome"], "COMPLETED")
+        self.assertTrue(response["result"]["statement"])
+
+    def test_a_reading_job_completes_with_the_invitation_id_the_context_gave_it(self):
+        executor = ScriptedExecutor(self.script)
+        anchor_id = self.script["INTERPRET"][0]["result"]["anchorings"][0]["anchorId"]
+        context = {
+            "invitation_id": "invitation-77",
+            "anchors": [{"anchor_id": anchor_id, "prompt": "p", "text": "t", "tap": None}],
+        }
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {
+                "type": "object",
+                "required": ["invitationId", "anchorings"],
+                "properties": {
+                    "invitationId": {"type": "string"},
+                    "anchorings": {"type": "array", "items": {"type": "object"}},
+                    "unprompted": {"type": "array", "items": {"type": "string"}},
+                    "flags": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        }
+        _handle_job(self.client, self.state, executor, self._job(context, contract), self.config)
+
+        self.assertEqual(self.client.failed, [])
+        _, _, response = self.client.completed[0]
+        self.assertEqual(response["result"]["invitationId"], "invitation-77")
+
+    def test_a_context_the_table_does_not_know_fails_the_job_naming_the_keys(self):
+        executor = ScriptedExecutor(self.script)
+        _handle_job(
+            self.client, self.state, executor,
+            self._job({"a_key_keel_cloud_never_writes": 1}, {"allowed_outcomes": ["COMPLETED"]}),
+            self.config,
+        )
+        self.assertEqual(self.client.completed, [])
+        self.assertEqual(len(self.client.failed), 1)
+        _, _, code, message = self.client.failed[0]
+        self.assertEqual(code, "LLM_UNAVAILABLE")
+        self.assertIn("a_key_keel_cloud_never_writes", message)
+
+    def test_a_scripted_run_writes_no_job_directory(self):
+        executor = ScriptedExecutor(self.script)
+        context = {key: None for key in self.keys["PROBLEM_FRAME"]}
+        contract = {
+            "allowed_outcomes": ["COMPLETED"],
+            "completed_result_schema": {"type": "object", "required": ["statement"],
+                                        "properties": {"statement": {"type": "string"}}},
+        }
+        _handle_job(self.client, self.state, executor, self._job(context, contract), self.config)
+        self.assertFalse((self.config.home / "jobs").exists())
 
 
 if __name__ == "__main__":

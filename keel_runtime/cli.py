@@ -39,7 +39,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--script",
         dest="script",
         help="path to a scripted-executor script (only meaningful with --executor scripted; "
-        "defaults to the bundled payroll-exceptions script)",
+        "falls back to KEEL_SCRIPT, then to the bundled countly-problem script)",
+    )
+    connect.add_argument(
+        "--context-keys",
+        dest="context_keys",
+        help="path to keel-cloud's exported context-keys.json, the scripted executor's "
+        "screen-inference table (only meaningful with --executor scripted; falls back to "
+        "KEEL_CONTEXT_KEYS, then to the bundled copy)",
     )
     connect.add_argument("--home", dest="home", help="overrides KEEL_HOME for this run")
     connect.add_argument(
@@ -95,10 +102,18 @@ def _run_connect(args) -> int:
             file=sys.stderr,
         )
 
+    if config.context_keys_path and config.executor != "scripted":
+        print(
+            f"keel connect: --context-keys is ignored because --executor is "
+            f"'{config.executor}', not 'scripted'",
+            file=sys.stderr,
+        )
+
     executor = get_executor(
         config.executor,
         config.script_path,
         home=config.home,
+        context_keys_path=config.context_keys_path,
         budget_usd=config.job_budget_usd,
         max_turns=config.job_max_turns,
         timeout_seconds=config.job_timeout_seconds,

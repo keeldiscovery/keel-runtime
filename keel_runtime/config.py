@@ -24,6 +24,12 @@ ENV_CREDENTIAL_BACKEND = "KEEL_CREDENTIAL_BACKEND"
 # spec 001-scripted-executor FR-002: only meaningful with `--executor scripted`; same
 # flag > env > `$KEEL_HOME/config.json` precedence as every other key.
 ENV_SCRIPT = "KEEL_SCRIPT"
+# spec 001-scripted-executor AMENDMENT-measured-beliefs RT-001: where the scripted
+# executor's screen-inference table is loaded from -- keel-cloud's own
+# `screenContracts export` writes it as `context-keys.json`. Same flag > env >
+# `$KEEL_HOME/config.json` precedence; falling back to the copy bundled in
+# `keel_runtime/testing/contracts/` when nothing sets it.
+ENV_CONTEXT_KEYS = "KEEL_CONTEXT_KEYS"
 
 # spec 021 FR-006: a runtime that is merely waiting on a slow long-poll must never be
 # mistaken for dead -- the default is one full poll cycle's worst case (the long-poll
@@ -67,6 +73,7 @@ class RuntimeConfig:
     open_browser: bool
     heartbeat_stale_after: float
     script_path: str | None
+    context_keys_path: str | None
     job_budget_usd: float
     job_max_turns: int
     job_timeout_seconds: float
@@ -255,6 +262,12 @@ def load(args) -> RuntimeConfig:
         or file_config.get("script")
     )
 
+    context_keys_path = (
+        getattr(args, "context_keys", None)
+        or os.environ.get(ENV_CONTEXT_KEYS)
+        or file_config.get("context_keys")
+    )
+
     job_budget_usd = _resolve_job_budget_usd(args, file_config)
     job_max_turns = _resolve_job_max_turns(args, file_config)
     job_timeout_seconds = _resolve_job_timeout_seconds(args, file_config)
@@ -267,6 +280,7 @@ def load(args) -> RuntimeConfig:
         open_browser=open_browser,
         heartbeat_stale_after=heartbeat_stale_after,
         script_path=script_path,
+        context_keys_path=context_keys_path,
         job_budget_usd=job_budget_usd,
         job_max_turns=job_max_turns,
         job_timeout_seconds=job_timeout_seconds,

@@ -21,3 +21,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["keel_runtime*"]
+
+# The scripted executor's bundled screen table and default script are read at run time, so an
+# installed `keel` needs them beside the code (spec 001-scripted-executor's
+# AMENDMENT-measured-beliefs). Both are regenerated from keel-cloud, never hand-edited.
+[tool.setuptools.package-data]
+"keel_runtime.testing" = ["contracts/*.json", "scripts/*.json"]
