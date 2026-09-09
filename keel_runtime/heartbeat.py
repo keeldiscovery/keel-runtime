@@ -24,13 +24,23 @@ HEARTBEAT_FILENAME = "runtime.heartbeat.json"
 
 _REQUIRED_FIELDS = ("pid", "agent_session_id", "base_url", "last_heartbeat_at")
 
+# `state` (keel-cloud DRIFT #51 / `canon/designs/keel-disconnect-design.md` §6, edge case (g)):
+# a runtime blocked in device authorization has a pid and a home but no agent session yet. It is
+# written by `write_awaiting_approval` and overwritten with `STATE_CONNECTED` the moment the real
+# heartbeat exists (`agent_session.create_agent_session`, `poller._write_heartbeat`). A file with
+# no `state` key at all -- every heartbeat this runtime ever wrote before this change -- is
+# `STATE_CONNECTED`: it could only have been written *after* an agent session existed.
+STATE_CONNECTED = "connected"
+STATE_AWAITING_APPROVAL = "awaiting_approval"
+
 
 @dataclass
 class Heartbeat:
     pid: int
-    agent_session_id: str
+    agent_session_id: Optional[str]
     base_url: str
     last_heartbeat_at: str
+    state: str = STATE_CONNECTED
 
 
 def path(home: Path) -> Path:
@@ -46,6 +56,34 @@ def write(home: Path, heartbeat: Heartbeat) -> None:
     with open(tmp_path, "w", encoding="utf-8") as handle:
         handle.write(json.dumps(asdict(heartbeat)))
     os.replace(tmp_path, target)
+
+
+def write_awaiting_approval(home: Path, pid: int, base_url: str) -> None:
+    """Written the moment `connect` has a pid and a home -- before the device code is even
+    requested, let alone redeemed (keel-cloud DRIFT #51: a runtime alive and waiting for device
+    approval was invisible to both `status` and `disconnect`, because the only heartbeat write
+    used to happen after the agent session existed).
+
+    Carries no `agent_session_id` -- none exists yet -- and `state=STATE_AWAITING_APPROVAL`, so
+    `disconnect` (which only ever reads `pid`) finds and stops this process at any point in its
+    life, and `status` can say "running, not yet connected" without claiming `connected: true`
+    of a session that does not exist. `agent_session.create_agent_session` overwrites this same
+    file with the real heartbeat -- `state=STATE_CONNECTED` -- the moment the agent session is
+    created, exactly as it already overwrites whatever the previous run left behind.
+
+    The caller (`auth.authorize_device`) also calls this once per poll tick while it waits, so a
+    founder who takes minutes to click approve does not watch this record go stale.
+    """
+    write(
+        home,
+        Heartbeat(
+            pid=pid,
+            agent_session_id=None,
+            base_url=base_url,
+            last_heartbeat_at=now_iso8601(),
+            state=STATE_AWAITING_APPROVAL,
+        ),
+    )
 
 
 def read(home: Path) -> Optional[Heartbeat]:
@@ -66,12 +104,17 @@ def read(home: Path) -> Optional[Heartbeat]:
     if not isinstance(data, dict) or any(field not in data for field in _REQUIRED_FIELDS):
         return None
 
+    raw_agent_session_id = data["agent_session_id"]
+    raw_state = data.get("state")
     try:
         return Heartbeat(
             pid=int(data["pid"]),
-            agent_session_id=str(data["agent_session_id"]),
+            agent_session_id=(
+                None if raw_agent_session_id is None else str(raw_agent_session_id)
+            ),
             base_url=str(data["base_url"]),
             last_heartbeat_at=str(data["last_heartbeat_at"]),
+            state=str(raw_state) if raw_state is not None else STATE_CONNECTED,
         )
     except (TypeError, ValueError):
         return None

@@ -3,12 +3,19 @@
 Prints two stable, machine-readable lines to stdout, flushed immediately, so a harness
 tailing the runtime's log can parse them (spec FR-026):
 ``KEEL_USER_CODE=<display code>`` and ``KEEL_VERIFICATION_URI=<verification_uri_complete>``.
+
+While it waits, this is also the process `cli._run_connect` has already told `status` and
+`disconnect` about (`heartbeat.write_awaiting_approval`, keel-cloud DRIFT #51): this module
+refreshes that same record once per poll tick, so a founder who takes minutes to click approve
+never watches it go stale.
 """
 from __future__ import annotations
 
+import os
 import time
 import webbrowser
 
+from . import heartbeat as heartbeat_module
 from .cloud_client import ApiError, CloudClient, NetworkError
 from .credential_store import Credential
 
@@ -40,6 +47,17 @@ def authorize_device(client: CloudClient, config) -> Credential:
         except Exception:
             pass  # best-effort; the printed URL is the fallback for a headless machine
 
+    home = getattr(config, "home", None)
+    pid = os.getpid()
+
+    def _refresh_awaiting_approval() -> None:
+        # Best-effort and optional: a `config` with no `.home` (a test double, or a future
+        # caller) simply gets no refresh, exactly as it got no heartbeat at all before this
+        # change -- this is an accelerator against staleness, not a requirement (mirrors G5's
+        # posture for the goodbye).
+        if home is not None:
+            heartbeat_module.write_awaiting_approval(home, pid, config.base_url)
+
     while True:
         try:
             token = client.get_agent_token(device_code)
@@ -51,6 +69,7 @@ def authorize_device(client: CloudClient, config) -> Credential:
             )
         except ApiError as exc:
             if exc.code == "AUTHORIZATION_PENDING":
+                _refresh_awaiting_approval()
                 time.sleep(poll_interval)
                 continue
             # ACCESS_DENIED, AUTHORIZATION_EXPIRED, CREDENTIAL_ALREADY_ISSUED, or
@@ -61,5 +80,6 @@ def authorize_device(client: CloudClient, config) -> Credential:
             # decision; keep polling at the server's own cadence rather than aborting
             # the whole authorization (judgement call -- not specified by FR-026/FR-027,
             # which only describe backoff for the *job* poll loop).
+            _refresh_awaiting_approval()
             time.sleep(poll_interval)
             continue
