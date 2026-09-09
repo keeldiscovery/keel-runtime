@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import signal
 import subprocess
@@ -272,6 +273,13 @@ def _run_connect(args) -> int:
     for line in executor_startup_lines(config):
         print(line, flush=True)
     _install_heartbeat_shutdown_handlers(config)
+    # keel-cloud DRIFT #51 / canon/designs/keel-disconnect-design.md §6(g): a launch record,
+    # naming this pid, written before the device code is even requested -- so a runtime that is
+    # alive and waiting for approval is not invisible to `status` and `disconnect`. Overwritten
+    # with the real heartbeat the moment an agent session exists, by `create_agent_session`
+    # (stored-credential path) or by `auth.authorize_device`'s own per-tick refresh followed by
+    # `create_agent_session` (fresh device authorization).
+    heartbeat_module.write_awaiting_approval(config.home, os.getpid(), config.base_url)
 
     if config.script_path and config.executor != "scripted":
         print(
@@ -300,26 +308,34 @@ def _run_connect(args) -> int:
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)
 
-    credential = store.load()
+    # A SIGTERM/Ctrl-C anywhere from here through the end of `run_loop` -- most of all while
+    # blocked in device authorization, waiting on a founder who never clicks approve -- used to
+    # propagate out of this function uncaught whenever it landed before `state` existed: a
+    # traceback, not a clean exit (the pre-existing quirk the goodbye pass noted). One try now
+    # covers the stored-credential reconnect, a fresh device authorization, and the poll loop
+    # alike, so all three are a clean exit the same way. The shutdown handler has already removed
+    # the launch record by the time we get here; `state` staying `None` is exactly what
+    # `_say_goodbye`'s G6 already treats as nothing to end.
     state = None
-    if credential is not None:
-        try:
-            state = agent_session_module.create_agent_session(client, credential, config)
-        except AuthenticationExpired:
-            # A stored credential the server no longer accepts is exactly "none or
-            # refused" (spec FR-026) -- fall through to a fresh device authorization.
-            store.clear()
-            credential = None
-
-    if state is None:
-        credential = auth_module.authorize_device(client, config)
-        store.save(credential)
-        state = agent_session_module.create_agent_session(client, credential, config)
-
-    print(f"keel-runtime connected: agent_session_id={state.agent_session_id}")
-    print("Polling for work. Press Ctrl+C to stop.")
-
     try:
+        credential = store.load()
+        if credential is not None:
+            try:
+                state = agent_session_module.create_agent_session(client, credential, config)
+            except AuthenticationExpired:
+                # A stored credential the server no longer accepts is exactly "none or
+                # refused" (spec FR-026) -- fall through to a fresh device authorization.
+                store.clear()
+                credential = None
+
+        if state is None:
+            credential = auth_module.authorize_device(client, config)
+            store.save(credential)
+            state = agent_session_module.create_agent_session(client, credential, config)
+
+        print(f"keel-runtime connected: agent_session_id={state.agent_session_id}")
+        print("Polling for work. Press Ctrl+C to stop.")
+
         # FR-011: `run_loop` rebinds `state` when a credential expires mid-run (`_reauthorize`),
         # so the state to say goodbye with is the one it *finished* with, not the one it started
         # with. It returns None only if it never entered the loop.
@@ -416,6 +432,19 @@ def _install_heartbeat_shutdown_handlers(config) -> None:
 def _run_status(args) -> int:
     """spec 021 FR-004/FR-005: no network call, always exits 0, exactly one line of
     JSON on stdout (contracts/status-cli-output.md).
+
+    **`connected: false`** (keel-cloud DRIFT #51): the running shape's `connected` key was
+    reserved for exactly this by the contract's own guarantee 4 -- "a future revision ... could
+    distinguish 'running but not yet connected' from 'running and connected' without breaking
+    existing callers who only check `running`". A runtime that wrote a launch record
+    (`heartbeat.write_awaiting_approval`) and is still waiting on device approval is alive and
+    pid-checkable, so `running` is `true`; it has no agent session yet, so `agent_session_id` is
+    `null` and `connected` is `false`, never `true`. No key is added to the shape -- `pid`,
+    `agent_session_id`, `base_url`, `last_heartbeat_at` and `connected` are the same five keys
+    the running shape always carried -- only `agent_session_id`'s value may now be `null` and
+    `connected`'s may now be `false`. Both are value-set changes the status contract
+    (`keel-cloud specs/021-keel-runtime-status/contracts/status-cli-output.md`) still needs to
+    describe; see this fix's own writeup for the exact amendment.
     """
     status_config = config_module.load_status_config(args)
     hb = heartbeat_module.read(status_config.home)
@@ -435,7 +464,7 @@ def _run_status(args) -> int:
             "agent_session_id": hb.agent_session_id,
             "base_url": hb.base_url,
             "last_heartbeat_at": hb.last_heartbeat_at,
-            "connected": True,
+            "connected": hb.state != heartbeat_module.STATE_AWAITING_APPROVAL,
         }
 
     result.update(_environment_keys(status_config, hb))
