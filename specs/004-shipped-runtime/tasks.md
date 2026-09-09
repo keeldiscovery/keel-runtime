@@ -28,12 +28,12 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 
 ## Phase 2: The stamp
 
-- [ ] T005 `keel_runtime/__init__.py`: `__version__`, `__license__` and the licence notice
+- [x] T005 `keel_runtime/__init__.py`: `__version__`, `__license__` and the licence notice
       constants (FR-004).
-- [ ] T006 `keel_runtime/cli.py`: `--version` and `--license` as top-level flags needing no
+- [x] T006 `keel_runtime/cli.py`: `--version` and `--license` as top-level flags needing no
       subcommand, one line each, exit 0; `--version` names `CLOUD_BASE_URL` when it has one
       (FR-005).
-- [ ] T007 `tests/test_cli_version.py`: both flags as real subprocesses, the `CLOUD_BASE_URL`
+- [x] T007 `tests/test_cli_version.py`: both flags as real subprocesses, the `CLOUD_BASE_URL`
       variant, and `pyproject`'s `version` agreeing with `__version__` (FR-004, FR-005).
 
 ## Phase 3: The address
@@ -51,12 +51,12 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 
 ## Phase 4: The report
 
-- [ ] T012 `keel_runtime/cli.py` `_run_status`: `home`, `environment`, `executor`,
+- [x] T012 `keel_runtime/cli.py` `_run_status`: `home`, `environment`, `executor`,
       `executor_on_path` and an always-present `base_url` in **both** shapes; still exit 0, still no
       network (FR-009, C-10, R-4).
-- [ ] T013 `keel_runtime/cli.py` `_run_connect`: the `KEEL_ENVIRONMENT=<env> base_url=<url>`
+- [x] T013 `keel_runtime/cli.py` `_run_connect`: the `KEEL_ENVIRONMENT=<env> base_url=<url>`
       startup line, flushed, before anything else (FR-010).
-- [ ] T014 `tests/test_cli_status.py`: both shapes with the five keys, the no-base-URL case, and
+- [x] T014 `tests/test_cli_status.py`: both shapes with the five keys, the no-base-URL case, and
       the derived-home case (FR-009, FR-011).
 
 ## Phase 5: The prose and the gate
