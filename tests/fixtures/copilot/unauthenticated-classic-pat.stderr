@@ -1,0 +1,9 @@
+Error: Classic Personal Access Tokens (ghp_) are not supported by Copilot.
+
+The COPILOT_GITHUB_TOKEN environment variable contains a classic PAT.
+Please use a Fine-Grained Personal Access Token or another authentication method.
+
+To fix this, you can:
+  • Replace the token in COPILOT_GITHUB_TOKEN with a fine-grained PAT
+  • Unset COPILOT_GITHUB_TOKEN and run 'gh auth login' to authenticate
+  • Unset COPILOT_GITHUB_TOKEN and start 'copilot', then use the '/login' command
