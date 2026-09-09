@@ -1,0 +1,453 @@
+# keel-cloud canon/designs/keel-skill-design.md §13 step 11, §10.3 (B2), §14 acceptance row A-8.
+#
+# What B2 is for: Windows-hosted GitHub Actions runners ship Python but cannot run a Postgres
+# service container (no Linux containers on GitHub-hosted Windows), and keel-cloud has never run
+# on Windows -- so this workflow never brings one up. Every assertion below points the skill and
+# the runtime at a closed port, `http://127.0.0.1:1`, where nothing listens, and checks the
+# deterministic, contract-named outcome that produces (`authorization_pending_timeout`, or one of
+# the two failure shapes the design allows: `runtime_unavailable` / `internal_error`). Reaching
+# that outcome proves the whole path -- the host's Python found the bundled runtime, resolved it
+# through PYTHONPATH, launched `connect` detached, and read the log it wrote -- without a live
+# Keel anywhere.
+#
+# The `acceptance` job below is windows-latest per the design, plus (cheaply, since the design's
+# beds are per operating system: §10.2 is Linux, §10.4 is the founder's Mac) macos-latest and
+# ubuntu-latest running the identical steps. It installs no extras and uses each runner's
+# preinstalled Python directly -- no actions/setup-python -- because the whole point of this job
+# is what that Python can do unmodified, the way a founder's own machine would run it.
+#
+# The `model-driven` job is a separate, later addition: an end-to-end walk through the real
+# `claude`/`copilot` host CLIs (still against the same closed port, so no live Keel is needed
+# there either), gated on this repository holding its first two secrets, ANTHROPIC_API_KEY and
+# COPILOT_GITHUB_TOKEN. Nothing in `acceptance` depends on it and nothing that publishes depends
+# on this workflow (a separate workflow, never a `needs:` of anything that publishes -- design
+# T-7).
+name: acceptance
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------------- acceptance
+  acceptance:
+    name: acceptance (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - name: Check out keel-runtime (this commit)
+        uses: actions/checkout@v4
+
+      - name: Check out keeldiscovery/keel-connect-skill at master
+        uses: actions/checkout@v4
+        with:
+          repository: keeldiscovery/keel-connect-skill
+          ref: master
+          path: keel-connect-skill
+
+      # §10.3 assertion 5, first half: "it prints its own python --version into the uploaded
+      # artifact". Recorded before anything else runs, so a red step below still leaves the
+      # artifact behind.
+      - name: Record the runner's preinstalled Python
+        shell: python
+        run: |
+          import platform
+          import sys
+
+          with open("python-version.txt", "w", encoding="utf-8") as handle:
+              handle.write("python %s\n" % sys.version)
+              handle.write("platform %s\n" % platform.platform())
+
+          print(open("python-version.txt", encoding="utf-8").read())
+
+      - name: Upload the recorded Python version
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-version-${{ matrix.os }}
+          path: python-version.txt
+
+      # design D2: the runtime that travels inside the skill is a copy `make runtime` makes of
+      # this checkout. `make` itself is not on every runner in this matrix (Windows has none by
+      # default), so this replicates that one copy step directly in Python -- the same bytes,
+      # portable, no dependency on GNU make being present.
+      - name: Bundle this checkout's keel_runtime/ into the skill (the normal, 'bundled' case)
+        shell: python
+        run: |
+          import os
+          import shutil
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          src = os.path.join(workspace, "keel_runtime")
+          dest = os.path.join(workspace, "keel-connect-skill", "keel_runtime")
+
+          if os.path.isdir(dest):
+              shutil.rmtree(dest)
+          shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
+
+          assert os.path.isfile(os.path.join(dest, "__main__.py")), "copy did not land __main__.py"
+          print("bundled", src, "->", dest)
+
+      # §10.3 assertion 3: "python -m keel_runtime --version exits 0, and
+      # python -m keel_runtime status --home <temp> prints exactly one line of JSON with
+      # running: false, executor and environment present."
+      - name: "python -m keel_runtime --version and status work"
+        shell: python
+        working-directory: ${{ github.workspace }}
+        run: |
+          import json
+          import subprocess
+          import sys
+          import tempfile
+
+          version = subprocess.run(
+              [sys.executable, "-m", "keel_runtime", "--version"],
+              capture_output=True, text=True, timeout=30,
+          )
+          print("stdout:", version.stdout, "stderr:", version.stderr)
+          assert version.returncode == 0, "keel_runtime --version exited %d" % version.returncode
+          assert version.stdout.strip(), "keel_runtime --version printed nothing"
+
+          with tempfile.TemporaryDirectory() as home:
+              status = subprocess.run(
+                  [sys.executable, "-m", "keel_runtime", "status", "--home", home],
+                  capture_output=True, text=True, timeout=30,
+              )
+          print("stdout:", status.stdout, "stderr:", status.stderr)
+          assert status.returncode == 0, "keel_runtime status exited %d" % status.returncode
+
+          lines = [line for line in status.stdout.splitlines() if line.strip()]
+          assert len(lines) == 1, "status must print exactly one line of JSON: %r" % lines
+          data = json.loads(lines[0])
+          for key in ("running", "executor", "environment", "base_url"):
+              assert key in data, "status is missing %r: %r" % (key, data)
+          assert data["running"] is False, "a fresh --home must report running: false: %r" % data
+          print("status ok:", data)
+
+      # §10.3 assertions 1 and 2: the whole skill path under this host's Python, against
+      # KEEL_BASE_URL=http://127.0.0.1:1 where nothing listens, and the derived home's shape --
+      # %USERPROFILE%\.keel\127.0.0.1-1\ on Windows, ~/.keel/127.0.0.1-1/ elsewhere (keel_runtime
+      # /config.py's host_slug: the address lowercased, port joined with '-'), with the launch log
+      # in it and nothing else at ~/.keel itself.
+      #
+      # KEEL_BASE_URL is set as an environment variable, not passed as --base-url: the skill's
+      # own script never passes --base-url to 'status', so environment is named on the very first
+      # call only if the runtime resolves it itself from the environment, exactly as a founder's
+      # shell would have it set.
+      - name: "The skill's script against a closed port: outcome and derived home shape"
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+          from pathlib import Path
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          script = os.path.join(workspace, "keel-connect-skill", "scripts", "keel_connect_check.py")
+          allowed_outcomes = {"authorization_pending_timeout", "runtime_unavailable", "internal_error"}
+
+          with tempfile.TemporaryDirectory() as fake_home:
+              env = dict(os.environ)
+              for var in ("KEEL_HOME", "KEEL_RUNTIME_PATH", "KEEL_EXECUTOR", "KEEL_BASE_URL",
+                          "CLAUDECODE", "COPILOT_CLI", "COPILOT_AGENT_SESSION_ID", "AI_AGENT"):
+                  env.pop(var, None)
+              env["KEEL_BASE_URL"] = "http://127.0.0.1:1"
+              env["HOME"] = fake_home
+              env["USERPROFILE"] = fake_home  # what Path.home() reads on Windows; harmless elsewhere
+
+              result = subprocess.run(
+                  [sys.executable, script, "--no-browser", "--wait-seconds", "5"],
+                  capture_output=True, text=True, timeout=60, env=env,
+              )
+              print("stdout:", result.stdout)
+              print("stderr:", result.stderr)
+              assert result.returncode == 0, "keel_connect_check.py exited %d" % result.returncode
+
+              lines = [line for line in result.stdout.splitlines() if line.strip()]
+              assert len(lines) == 1, "the script must print exactly one line of JSON: %r" % lines
+              payload = json.loads(lines[0])
+
+              outcome = payload.get("outcome")
+              assert outcome in allowed_outcomes, "unexpected outcome: %r" % payload
+              if outcome == "authorization_pending_timeout":
+                  assert payload.get("environment") == "127.0.0.1:1", (
+                      "authorization_pending_timeout must name the environment it reached "
+                      "for: %r" % payload)
+              else:
+                  print("::warning::got %r against a closed port -- design §10.3 allows it, but "
+                        "authorization_pending_timeout is the expected shape" % outcome)
+              print("outcome:", outcome, "environment:", payload.get("environment"))
+
+              derived_home = Path(fake_home) / ".keel" / "127.0.0.1-1"
+              assert derived_home.is_dir(), "no derived home at %s" % derived_home
+              log_file = derived_home / "keel-connect-check.launch.log"
+              assert log_file.is_file(), "no launch log at %s" % log_file
+
+              keel_root = Path(fake_home) / ".keel"
+              siblings = sorted(p.name for p in keel_root.iterdir())
+              assert siblings == ["127.0.0.1-1"], (
+                  "nothing but the derived home may live at ~/.keel "
+                  "(or %%USERPROFILE%%\\.keel): found %r" % siblings)
+              print("derived home shape ok:", derived_home)
+
+      # §10.3 assertion 4: "Both hosts, and a named outcome from each" -- no model call in this
+      # job (that is the gated model-driven job below), but --host is the one thing this script
+      # varies per host, so both values are exercised directly and must each reach a named
+      # outcome rather than a crash.
+      - name: "Both hosts reach a named outcome (--host claude, --host copilot)"
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          import sys
+          import tempfile
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          script = os.path.join(workspace, "keel-connect-skill", "scripts", "keel_connect_check.py")
+          allowed_outcomes = {"authorization_pending_timeout", "runtime_unavailable", "internal_error"}
+
+          for host in ("claude", "copilot"):
+              with tempfile.TemporaryDirectory() as fake_home:
+                  env = dict(os.environ)
+                  for var in ("KEEL_HOME", "KEEL_RUNTIME_PATH", "KEEL_EXECUTOR", "KEEL_BASE_URL",
+                              "CLAUDECODE", "COPILOT_CLI", "COPILOT_AGENT_SESSION_ID", "AI_AGENT"):
+                      env.pop(var, None)
+                  env["KEEL_BASE_URL"] = "http://127.0.0.1:1"
+                  env["HOME"] = fake_home
+                  env["USERPROFILE"] = fake_home
+
+                  result = subprocess.run(
+                      [sys.executable, script, "--host", host, "--no-browser", "--wait-seconds", "5"],
+                      capture_output=True, text=True, timeout=60, env=env,
+                  )
+                  print(host, "stdout:", result.stdout)
+                  print(host, "stderr:", result.stderr)
+                  assert result.returncode == 0, "%s exited %d" % (host, result.returncode)
+                  lines = [line for line in result.stdout.splitlines() if line.strip()]
+                  assert len(lines) == 1, "%s: expected one line of JSON: %r" % (host, lines)
+                  payload = json.loads(lines[0])
+                  assert payload.get("outcome") in allowed_outcomes, (
+                      "%s: unexpected outcome: %r" % (host, payload))
+                  print(host, "outcome:", payload.get("outcome"))
+
+      # Not one of §10.3's five numbered assertions, but named explicitly for this job: nothing
+      # has ever run against this fresh home, so the runtime's own 'disconnect' must answer
+      # not_running -- never start a 'keel connect' (keel-disconnect-design.md guarantee 3).
+      - name: "'keel disconnect' on nothing -> not_running"
+        shell: python
+        working-directory: ${{ github.workspace }}
+        run: |
+          import json
+          import subprocess
+          import sys
+          import tempfile
+
+          with tempfile.TemporaryDirectory() as home:
+              result = subprocess.run(
+                  [sys.executable, "-m", "keel_runtime", "disconnect", "--home", home],
+                  capture_output=True, text=True, timeout=30,
+              )
+          print("stdout:", result.stdout, "stderr:", result.stderr)
+          assert result.returncode == 0, "disconnect exited %d" % result.returncode
+          lines = [line for line in result.stdout.splitlines() if line.strip()]
+          assert len(lines) == 1, "disconnect must print exactly one line: %r" % lines
+          data = json.loads(lines[0])
+          assert data.get("outcome") == "not_running", "expected not_running, got %r" % data
+          print("disconnect ok:", data)
+
+      # The skill's own unit tests (Makefile's `test:` target is `python -m unittest discover
+      # tests -v`; called directly here, not through `make`, since Windows has no `make`). Safe to
+      # run un-skipped on every OS in this matrix: the bundling step above already gave this
+      # checkout a real keel_runtime/, so RealBundledRuntimeTestCase runs for real rather than
+      # self-skipping, and test_dist.py's own setUpModule skips gracefully (not a failure) on a
+      # runner with no `make` on PATH.
+      - name: The skill's own unit tests
+        shell: python
+        working-directory: ${{ github.workspace }}/keel-connect-skill
+        run: |
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              [sys.executable, "-m", "unittest", "discover", "tests", "-v"],
+              timeout=600,
+          )
+          assert result.returncode == 0, "the skill's unit tests failed"
+
+      # §10.3 assertion 5, second half: "winget install Python.Python.3.12 resolves" -- searched,
+      # never installed.
+      - name: "winget resolves Python.Python.3.12 (search only, never installed)"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $output = winget search --id Python.Python.3.12 --source winget --accept-source-agreements 2>&1
+          $output | Out-String | Write-Output
+          if ($LASTEXITCODE -ne 0) {
+            throw "winget search exited $LASTEXITCODE"
+          }
+          if (-not ($output -match "Python\.Python\.3\.12")) {
+            throw "winget did not resolve the package id Python.Python.3.12"
+          }
+
+      # §10.3 assertion 5's own caveat, verbatim in spirit: a green run here is not evidence that
+      # a founder's own machine has a Python at all.
+      - name: Job summary caveat
+        if: always()
+        shell: python
+        run: |
+          import os
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(
+                  "### acceptance (%s)\n\n"
+                  "A green run here proves this code under **the runner's preinstalled "
+                  "Python** -- it is not evidence that a founder's own machine has a Python "
+                  "at all (keel-cloud canon/designs/keel-skill-design.md §10.3 assertion 5).\n\n"
+                  % os.environ["RUNNER_OS"]
+              )
+
+  # ------------------------------------------------------------------------- secret availability
+  #
+  # A job's own `if:` cannot read the secrets context directly -- GitHub's context-availability
+  # table lists only `github, needs, vars, inputs` for `jobs.<job_id>.if` (and the same list plus
+  # a few more for `jobs.<job_id>.steps.if`; `secrets` is in neither):
+  # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
+  # (read 2026-09-09). `secrets` *is* available in a step's `env:`, so this job reads both secrets
+  # into step env vars, checks them in the step's own shell, and republishes the answer as a job
+  # output -- which `needs.<job>.outputs` (a context job `if:` *is* allowed to read) can gate on.
+  check-secrets:
+    name: check for acceptance secrets
+    runs-on: ubuntu-latest
+    outputs:
+      have-secrets: ${{ steps.check.outputs.have-secrets }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          if [[ -n "$ANTHROPIC_API_KEY" && -n "$COPILOT_GITHUB_TOKEN" ]]; then
+            echo "have-secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have-secrets=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # -------------------------------------------------------------------------------- model-driven
+  #
+  # The model-driven half of B2: the real `claude`/`copilot` host CLIs, still against the same
+  # closed port (no live Keel needed here either), each with the skill installed into that host's
+  # personal skill directory the way D1 requires (one source tree, both hosts). Runs only when
+  # this repository holds both acceptance secrets -- it does not today, so this job is skipped and
+  # the reason is named in the run's job summary by the job below instead.
+  model-driven:
+    name: model-driven half (claude, copilot)
+    needs: check-secrets
+    if: needs.check-secrets.outputs.have-secrets == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out keel-runtime (this commit)
+        uses: actions/checkout@v4
+
+      - name: Check out keeldiscovery/keel-connect-skill at master
+        uses: actions/checkout@v4
+        with:
+          repository: keeldiscovery/keel-connect-skill
+          ref: master
+          path: keel-connect-skill
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Bundle the runtime and install the skill into both hosts' personal skill directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import shutil
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          src = os.path.join(workspace, "keel_runtime")
+          dest = os.path.join(workspace, "keel-connect-skill", "keel_runtime")
+          if os.path.isdir(dest):
+              shutil.rmtree(dest)
+          shutil.copytree(src, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+          PY
+
+          mkdir -p "$HOME/.claude/skills" "$HOME/.copilot/skills"
+          rm -rf "$HOME/.claude/skills/keel-connect" "$HOME/.copilot/skills/keel-connect"
+          cp -R "$GITHUB_WORKSPACE/keel-connect-skill" "$HOME/.claude/skills/keel-connect"
+          cp -R "$GITHUB_WORKSPACE/keel-connect-skill" "$HOME/.copilot/skills/keel-connect"
+
+      - name: Install both host CLIs from npm, versions printed (T-6)
+        run: |
+          npm install -g @anthropic-ai/claude-code @github/copilot
+          claude --version
+          copilot --version
+
+      # design §10.2's exact command line. --bare must never be used here (it skips
+      # auto-discovery of skills and would silently make the skill invisible -- design's own
+      # trap, T-2). --permission-mode dontAsk, not --dangerously-skip-permissions, which is
+      # refused when the process is root.
+      - name: 'claude -p "keel connect" against a closed port'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          KEEL_BASE_URL: http://127.0.0.1:1
+        run: |
+          claude -p "keel connect" --output-format json \
+            --allowedTools "Skill,Bash(python3:*)" --permission-mode dontAsk | tee claude-reply.json
+          echo "--- reply above; a paragraph naming no outcome is red per design §10.3 assertion 4 ---"
+
+      # There is no --output-format json for a Copilot prompt reply (design §10.2), so its
+      # outcome is read out of -s's plain text rather than parsed as structured JSON.
+      - name: 'copilot -p "keel connect" against a closed port'
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          KEEL_BASE_URL: http://127.0.0.1:1
+        run: |
+          copilot -p "keel connect" --allow-tool 'shell(python3:*)' --no-ask-user -s | tee copilot-reply.txt
+          echo "--- reply above; a paragraph naming no outcome is red per design §10.3 assertion 4 ---"
+
+      - name: Job summary
+        if: always()
+        shell: python
+        run: |
+          import os
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write(
+                  "### model-driven half\n\n"
+                  "Ran `claude -p \"keel connect\"` and `copilot -p \"keel connect\"` against a "
+                  "closed port (`http://127.0.0.1:1`); see the two step logs above for each "
+                  "host's reply. No model calls elsewhere in this workflow.\n\n"
+              )
+
+  model-driven-skipped:
+    name: model-driven half (skipped)
+    needs: check-secrets
+    if: needs.check-secrets.outputs.have-secrets != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Job summary naming the reason
+        shell: bash
+        run: |
+          {
+            echo "### model-driven half: skipped"
+            echo ""
+            echo "ANTHROPIC_API_KEY and/or COPILOT_GITHUB_TOKEN are not set on this repository "\
+                 "-- the model-driven half of B2 needs both and is skipped rather than run "\
+                 "without them, per design §10.2's T-5 (no secret is baked in; a missing one "\
+                 "means the job that needs it does not run, not that it runs without it)."
+          } >> "$GITHUB_STEP_SUMMARY"
