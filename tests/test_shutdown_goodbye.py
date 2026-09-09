@@ -1,15 +1,17 @@
-"""The goodbye's **seam** (spec `003-keel-disconnect` FR-010, FR-011; keel-cloud
+"""The goodbye's **seam and call site** (spec `003-keel-disconnect` FR-010, FR-011; keel-cloud
 `canon/designs/keel-disconnect-design.md` §4.2, invariants G1, G3, G6).
 
 The goodbye itself -- one bounded, best-effort `POST /v2/agent-sessions/{id}/disconnect` that ends
 the runtime's own agent session, so the founder's screen stops saying *Agent connected* in about
-four seconds instead of up to ninety -- is the design's step 4 and is **not** implemented here:
-keel-cloud has no such route yet. What is implemented, and what these tests hold, is the place it
-goes and the promises that placement makes:
+four seconds instead of up to ninety -- is `CloudClient.end_agent_session`
+(`keel_runtime/cloud_client.py`; keel-cloud spec `033-agent-session-goodbye`, design §10 step 4),
+and `tests/test_cloud_client_goodbye.py` holds its own wire-level promises against a real, local
+server. What this module holds is the seam around that call and the promises its *placement*
+makes, using a recording stub client (`_GoodbyeClient`) so the ordering and swallowing tests never
+touch a socket:
 
-* **today it is a no-op** -- `CloudClient` has no `end_agent_session`, so nothing is called and no
-  socket is opened (the first test below asserts exactly that, so the day the client grows the
-  method, the day this seam starts working, is a day someone chose);
+* **the call is made once, with this session's own id and bearer** -- and nothing at all when a
+  client carries no goodbye (a stub in a test, or a hypothetically older `CloudClient`);
 * **after the heartbeat, never before** (G3) -- local truth first: a founder who runs `keel status`
   half a second after stopping their runtime reads "not running" whether or not the network
   cooperated. Asserted here through the *real* shutdown handler, by signalling this process;
@@ -33,8 +35,9 @@ from keel_runtime.credential_store import Credential
 
 
 class _GoodbyeClient:
-    """A Keel Cloud that *does* have the goodbye -- what `CloudClient` becomes in the second
-    pass."""
+    """A recording stand-in for `CloudClient`, so the seam's ordering and swallowing are proved
+    without a socket. `test_cloud_client_goodbye.py` proves the real method against a real
+    server; this fixture only needs to look like it."""
 
     def __init__(self, home=None, raises=None):
         self.calls = []
@@ -60,13 +63,12 @@ class SayGoodbyeTest(unittest.TestCase):
     def tearDown(self):
         self._tmp.cleanup()
 
-    def test_todays_client_has_no_goodbye_and_none_is_sent(self):
-        """The no-op, asserted from both ends: the client has no such method, and the seam
-        reports that it attempted nothing."""
+    def test_todays_client_has_the_goodbye(self):
+        """The method this seam was built to call now exists for real (the second pass) --
+        `test_cloud_client_goodbye.py` proves what it does against a real server; this only
+        proves the seam finds it."""
         client = CloudClient(base_url="http://127.0.0.1:1")
-        self.assertFalse(hasattr(client, "end_agent_session"))
-        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("network call")):
-            self.assertFalse(cli._say_goodbye(client, self.state, self.config))
+        self.assertTrue(hasattr(client, "end_agent_session"))
 
     def test_a_client_with_the_goodbye_is_called_once_with_this_session_and_token(self):
         client = _GoodbyeClient()
@@ -181,10 +183,18 @@ class ConnectSaysGoodbyeTest(unittest.TestCase):
             client.calls, [("agent-session-2", "token-2", cli.GOODBYE_TIMEOUT_SECONDS)]
         )
 
-    def test_todays_runtime_says_nothing_and_still_exits_cleanly(self):
-        """The whole of this pass, from the outside: with a client that has no goodbye, `connect`
-        exits exactly as it does now."""
+    def test_connect_exits_cleanly_with_the_real_client_shape(self):
+        """The whole of this pass, from the outside: `connect` exits exactly as it did before the
+        goodbye existed, and the real client's `end_agent_session` is the one thing reached."""
         client = mock.Mock(spec=CloudClient)
+        self.assertEqual(self._connect(client, lambda *a, **k: None), 0)
+        client.end_agent_session.assert_called_once()
+
+    def test_connect_exits_cleanly_even_if_the_client_carries_no_goodbye_at_all(self):
+        """Defensive: the seam's `getattr` lookup, not a direct call, is what keeps a client with
+        no `end_agent_session` at all a clean no-op instead of an `AttributeError` -- so `connect`
+        would still exit 0 talking to a hypothetically older client shape."""
+        client = object()
         self.assertEqual(self._connect(client, lambda *a, **k: None), 0)
         self.assertFalse(hasattr(client, "end_agent_session"))
 

@@ -343,13 +343,14 @@ GOODBYE_TIMEOUT_SECONDS = 2.0
 
 
 def _say_goodbye(client, state, config) -> bool:
-    """The runtime's last act, and the **seam** spec 003's second pass fills (FR-010; design §4.2,
-    invariants G1-G3, G6). Returns whether a goodbye was attempted.
+    """The runtime's last act (FR-010; design §4.2, invariants G1-G3, G6). Returns whether a
+    goodbye was attempted.
 
-    **Today it is a no-op**, deliberately and tested as one: `CloudClient` has no
-    `end_agent_session`, because keel-cloud has no `POST /v2/agent-sessions/{id}/disconnect` to
-    call yet (keel-cloud spec `033-agent-session-goodbye`, design §10 step 3). The second pass
-    adds that one client method and this call site starts working with no edit of its own.
+    **The call**, since `CloudClient.end_agent_session` (keel-cloud spec
+    `033-agent-session-goodbye`): `POST /v2/agent-sessions/{id}/disconnect`, this session's own
+    bearer, a body of `{}`, expecting `204`. The `getattr` lookup below is kept rather than called
+    directly so a client without the method -- a stub in a test, or an older `CloudClient` --
+    still makes this a clean no-op instead of an `AttributeError`.
 
     **Where it is, and where it must not be.** Not in the signal handler: that runs on the main
     thread's own stack, wherever that thread happens to be -- nine times in ten inside the
@@ -361,17 +362,19 @@ def _say_goodbye(client, state, config) -> bool:
     later reads "not running" whether or not the network cooperated. **Local truth first, always.**
 
     **Best-effort.** Every exception is swallowed: a refused call, a 404 from an older Keel Cloud,
-    a laptop already off the wifi. None of them delays the exit, changes the exit code, or changes
-    `keel disconnect`'s outcome (G1). The goodbye is an accelerator, never a requirement (G5) --
-    when it does not arrive, keel-cloud's existing staleness rule turns the founder's screen off
-    exactly as it does today.
+    a laptop already off the wifi, the call itself timing out. None of them delays the exit,
+    changes the exit code, or changes `keel disconnect`'s outcome (G1). The goodbye is an
+    accelerator, never a requirement (G5) -- when it does not arrive, keel-cloud's existing
+    staleness rule turns the founder's screen off exactly as it does today. Success or failure,
+    the attempt is one line in the log a founder can read afterwards; it is never why `connect`
+    exits non-zero, because it is never why `connect` exits at all.
     """
     if state is None or not getattr(state, "agent_session_id", None):
         return False  # G6 -- a run interrupted during device authorization has nothing to end.
 
     end_agent_session = getattr(client, "end_agent_session", None)
     if end_agent_session is None:
-        return False  # no endpoint in this runtime's client yet -- the second pass adds it.
+        return False  # this client carries no goodbye -- a stub in a test, or an older client.
 
     try:
         end_agent_session(
@@ -379,8 +382,17 @@ def _say_goodbye(client, state, config) -> bool:
             state.access_token,
             timeout=GOODBYE_TIMEOUT_SECONDS,
         )
-    except Exception:  # noqa: BLE001 -- G1: everything, without exception, is swallowed here.
-        pass
+    except Exception as exc:  # noqa: BLE001 -- G1: everything, without exception, is swallowed.
+        print(
+            f"keel-runtime: goodbye to agent_session_id={state.agent_session_id} failed "
+            f"({exc.__class__.__name__}: {exc}) -- disconnecting anyway",
+            flush=True,
+        )
+    else:
+        print(
+            f"keel-runtime: said goodbye to agent_session_id={state.agent_session_id}",
+            flush=True,
+        )
     return True
 
 

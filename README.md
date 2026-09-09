@@ -109,10 +109,17 @@ and guarantees are the stable contract at
 [`specs/003-keel-disconnect/contracts/disconnect-cli-output.md`](specs/003-keel-disconnect/contracts/disconnect-cli-output.md).
 
 A job in flight is **abandoned** -- no `/complete`, no `/fail`, nothing said -- which is exactly
-what Ctrl+C does today. Whose problem that job then is, and the goodbye that will tell Keel Cloud
-the runtime has gone so the founder's screen stops saying *Agent connected* within seconds rather
-than within ninety, are keel-cloud's side of
-`canon/designs/keel-disconnect-design.md` and are not built yet.
+what Ctrl+C does today. Whose problem that job then is stays keel-cloud's own (the in-flight
+cancel, `canon/designs/keel-disconnect-design.md` §6e).
+
+On a clean exit -- Ctrl+C, `SIGTERM`, or the `SIGTERM` a `keel disconnect` sends -- the runtime's
+very last act, after the heartbeat is already gone, is one bounded, best-effort call that ends its
+own agent session (`POST /v2/agent-sessions/{id}/disconnect`, keel-cloud spec
+`033-agent-session-goodbye`), so the founder's screen stops saying *Agent connected* within
+seconds rather than within ninety. It never delays or changes the exit: a 2s timeout, no retry, and
+every failure -- a refused call, a 404 from an older Keel Cloud, a network already gone -- is
+swallowed and logged in one line. There is nothing to say goodbye to, and nothing is called, when
+the process never got past device authorization.
 
 ## Saying which runtime this is
 

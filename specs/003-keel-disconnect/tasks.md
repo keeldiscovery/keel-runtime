@@ -108,6 +108,19 @@ nor `jsonschema` installed, and on the newest interpreter present.
   swallowed including the `404` an older Keel Cloud gives it — and **this call site does not
   change**. It is blocked on keel-cloud spec `033-agent-session-goodbye` (step 3) existing to be
   called.
+
+  **Landed, second pass (2026-09-09), on `033` having shipped**: `CloudClient.end_agent_session`
+  in `keel_runtime/cloud_client.py`, exactly as specified above, and *no edit* to `_say_goodbye`
+  or its call site — the `getattr` lookup this pass's own tasks.md predicted starts working with
+  the client alone. `tests/test_cloud_client_goodbye.py` (new) proves the wire call itself against
+  a real, local `http.server` — the right path, bearer and body; `404`/`403` as `ApiError`; a
+  hanging server bounded by the caller's own timeout, not the server's pace; connection-refused as
+  `NetworkError`. Found doing it: on Python 3.9 a timeout **reading** a response (as opposed to
+  connecting) raises bare `socket.timeout`, which is not `TimeoutError` there (they are the same
+  class from 3.10 on) and reached neither of `_request`'s two exception clauses — so `cloud_client.
+  py`'s catch-all is now `except (socket.timeout, TimeoutError)`, the one-clause fix that makes the
+  hang test pass identically on both floors. `tests/test_shutdown_goodbye.py`'s two tests that
+  asserted "today's client has no goodbye" are updated to assert the opposite, since it now does.
 - **A `RUNNING` job whose runtime went away** stays `RUNNING` forever, and its interaction stays
   `PENDING` forever (§6e). That is true today, of a crash and a closed laptop alike; disconnect
   makes it routine without creating it. The fix is the goodbye's second effect and belongs to
