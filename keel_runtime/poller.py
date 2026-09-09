@@ -7,6 +7,14 @@ the executor's own ``InvalidResponse``. A ``401`` anywhere discards the stored
 credential and re-authorizes from scratch. A network error retries with capped
 exponential backoff. ``KeyboardInterrupt`` exits cleanly.
 
+A ``410 AGENT_SESSION_SUPERSEDED`` anywhere (keel-cloud spec `035-one-runtime-per-founder`) is the
+opposite of a `401`: it means another runtime already holds this founder account, so
+re-authorizing here would only fight it for the credential. `run_loop` does not catch
+`AgentSessionSuperseded` -- it is let through deliberately, past this module's own
+`except AuthenticationExpired`/`except NetworkError`, straight out to `cli._run_connect`, which is
+where it is reported, the heartbeat is removed, the goodbye is skipped (the session is already
+ended -- calling it would just 404), and `connect` exits 0.
+
 spec 002-words-are-words FR-005: every job's `envelope.json` (the CLI's own envelope,
 verbatim) and `request.json` (the prompt sections that were sent, for the referee's
 canary check) are written to `$KEEL_HOME/jobs/<job_id>/` -- read off the executor's
@@ -27,7 +35,13 @@ import time
 from . import agent_session as agent_session_module
 from . import auth as auth_module
 from . import heartbeat as heartbeat_module
-from .cloud_client import ApiError, AuthenticationExpired, CloudClient, NetworkError
+from .cloud_client import (
+    AgentSessionSuperseded,
+    ApiError,
+    AuthenticationExpired,
+    CloudClient,
+    NetworkError,
+)
 from .executor import (
     Executor,
     ExecutorAuthFailure,
@@ -68,6 +82,12 @@ def run_loop(client: CloudClient, state, executor: Executor, store, config):
                     continue
                 _handle_job(client, state, executor, answer["job"], config)
                 _write_heartbeat(state, config)
+            except AgentSessionSuperseded:
+                # Deliberately not handled here -- re-authorizing (what `AuthenticationExpired`
+                # does, just below) is exactly wrong for this one: a newer runtime already holds
+                # the account, and reconnecting here would fight it for the credential. Left to
+                # propagate out of `run_loop` whole, straight to `cli._run_connect`.
+                raise
             except AuthenticationExpired:
                 state = _reauthorize(client, store, config)
                 continue
