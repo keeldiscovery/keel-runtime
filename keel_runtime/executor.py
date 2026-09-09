@@ -923,6 +923,12 @@ class CopilotExecutor(Executor):
         if shutil.which(self.binary) is None:
             raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
 
+        # Cleared per call, so a reused executor never reports the previous job's envelope
+        # alongside this job's failure.
+        self.last_envelope = None
+        self.last_events = None
+        self.last_schema_error = None
+
         sections = _prompt_sections(request)
         self.last_request_sections = sections
 
@@ -945,7 +951,6 @@ class CopilotExecutor(Executor):
         events, completed = self._invoke(prompt, job_dir)
         all_events = list(events)
         self.last_events = all_events
-        self.last_schema_error = None
 
         self._assert_ran(all_events, completed)
         self._assert_closed_shape(all_events)
