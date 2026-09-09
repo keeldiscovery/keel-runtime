@@ -14,6 +14,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -130,10 +131,23 @@ def remove(home: Path) -> None:
 
 def pid_alive(pid: int) -> bool:
     """POSIX (macOS/Linux): `os.kill(pid, 0)` -- `ProcessLookupError` => False,
-    `PermissionError` => True (a pid we can't signal still exists). Windows:
-    `ctypes`/`OpenProcess`, since `os.kill(pid, 0)` is not the same signal-0 probe there
-    (research.md §3; no `psutil` dependency, matching spec 020 FR-025's stdlib-only
-    posture).
+    `PermissionError` => True (a pid we can't signal still exists) -- **except** a pid
+    that is `os.kill`-alive but a zombie, which is not alive (keel-e2e-eval DRIFT #57):
+    a process that has already exited keeps its process-table entry, and therefore keeps
+    answering `os.kill(pid, 0)`, until whatever its *real* parent is calls `wait()` on it.
+    On the founder's own macOS, or any systemd Linux, that reaping happens within a poll
+    interval and this was never visibly wrong -- but inside a container whose PID 1 is an
+    ordinary process (a devcontainer, a CI job, `docker run python3` with no `--init`),
+    nothing ever reaps it, and a runtime that died on the very first `SIGTERM` was reported
+    `disconnect: timeout` (the skill layer's `did_not_stop`) for the full 15-second bound,
+    about a process that was already gone. `is_zombie` below is the correction; a pid this
+    process cannot signal (`PermissionError`) is left as "alive" unchanged -- it belongs to
+    another user, and there is no remedy for that case regardless.
+
+    Windows: `ctypes`/`OpenProcess`, since `os.kill(pid, 0)` is not the same signal-0 probe
+    there (research.md §3; no `psutil` dependency, matching spec 020 FR-025's stdlib-only
+    posture). Windows has no zombie state in this sense -- a terminated process's handle
+    simply stops being valid -- so no equivalent check is needed there.
     """
     if sys.platform == "win32":
         return _pid_alive_windows(pid)  # pragma: no cover -- exercised on Windows only
@@ -143,7 +157,83 @@ def pid_alive(pid: int) -> bool:
         return False
     except PermissionError:
         return True
-    return True
+    return not is_zombie(pid)
+
+
+def is_zombie(pid: int) -> bool:
+    """True when `pid` exists (answers `os.kill(pid, 0)`) but has already exited and not
+    been reaped by its real parent -- state `Z`, "zombie" or "defunct" depending on the
+    tool that prints it. Exported (not `_`-prefixed) so `disconnect` can log the distinction
+    without this module's liveness seam (`pid_alive`, which stays a plain bool) needing to
+    change shape.
+
+    Linux has `/proc/<pid>/stat`, whose third field is the state letter -- read directly,
+    no subprocess, no shell. macOS/BSD have no `/proc`; `ps -o stat= -p <pid>` is the
+    portable stand-in there (an argv list passed straight to `subprocess.run`, never a
+    shell string). Either read failing -- the pid vanished between the caller's `os.kill`
+    probe and this check, `ps` is missing, anything -- answers "not a zombie": this
+    function only ever narrows an already-`os.kill`-alive pid from "alive" to "gone", never
+    the reverse, so an inconclusive read must side with the caller's cheaper probe rather
+    than manufacture a new way to say "dead" that `pid_alive`'s docstring doesn't promise.
+    """
+    if sys.platform == "win32":
+        return False  # pragma: no cover -- exercised on Windows only; no zombie state there
+    if Path("/proc").is_dir():
+        state = _proc_stat_state(pid)
+    else:
+        state = _ps_stat_state(pid)
+    return state == "Z"
+
+
+def _proc_stat_state(pid: int) -> Optional[str]:
+    """The state letter from `/proc/<pid>/stat`, or `None` if it can't be read/parsed."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return _parse_proc_stat_state(raw)
+
+
+def _parse_proc_stat_state(raw: str) -> Optional[str]:
+    """Parses one `/proc/<pid>/stat` line into its state field (man proc(5), field 3).
+
+    The line is `pid (comm) state ...`, and `comm` -- the process's own name, which it
+    controls (`prctl(PR_SET_NAME, ...)`, or just `argv[0]`) -- is the one field that isn't
+    whitespace-delimited: it is wrapped in parentheses specifically because it may itself
+    contain spaces, or even parentheses of its own. The only field guaranteed not to appear
+    inside `comm` is the *matching close* of the *opening* paren right after the pid -- but
+    finding that would need a real parser, and proc(5) gives a cheaper guarantee instead:
+    nothing after `comm` ever contains a `)`, so the **last** `)` in the whole line is always
+    `comm`'s close paren, whatever `comm` contains. Split there, then take the first
+    whitespace-delimited token after it.
+    """
+    close_paren = raw.rfind(")")
+    if close_paren == -1:
+        return None
+    fields = raw[close_paren + 1 :].split()
+    if not fields:
+        return None
+    return fields[0]
+
+
+def _ps_stat_state(pid: int) -> Optional[str]:
+    """The leading state letter from `ps -o stat= -p <pid>` (e.g. `Z`, `Z+`, `S`, `R+`) --
+    macOS/BSD's answer where there is no `/proc` to read directly. `capture_output`/`text`
+    keep this stdlib-only (research.md §3's posture); the argv list form never touches a
+    shell. `ps` printing nothing (pid already gone) or failing to run at all both answer
+    `None` -- inconclusive, not "zombie".
+    """
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "stat=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    stat = result.stdout.strip()
+    return stat[:1] or None
 
 
 def _pid_alive_windows(pid: int) -> bool:  # pragma: no cover -- exercised on Windows only

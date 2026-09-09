@@ -196,6 +196,33 @@ class DisconnectFlowTest(unittest.TestCase):
         self.assertFalse(heartbeat.path(self.home).exists())
         self.assertFalse(heartbeat.pid_alive(child.pid))
 
+    @unittest.skipIf(sys.platform == "win32", "os.fork is POSIX-only; no zombie state on Windows")
+    def test_a_process_that_dies_into_an_unreaped_zombie_is_stopped_fast(self):
+        """keel-e2e-eval DRIFT #57, the finding itself: inside a container whose PID 1 never
+        reaps, a runtime that dies on the first SIGTERM stays a zombie, and `os.kill(pid, 0)`
+        still says it's alive. Unlike every other test above, this one deliberately skips
+        `_spawn`'s background reaping thread -- forking directly instead -- so the child is this
+        test process's real, un-reaped child, exactly the shape the referee isolated: `ppid`
+        the test itself, state `Z` the moment SIGTERM's default disposition kills it. The fixed
+        `pid_alive` has to see through that and report `stopped` in on the order of milliseconds,
+        not `timeout` at the full 15-second bound the referee measured before this fix.
+        """
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover -- child process branch
+            try:
+                os.execvp(sys.executable, [sys.executable, "-c", "import time; time.sleep(60)"])
+            finally:
+                os._exit(127)  # pragma: no cover -- only reached if execvp itself fails
+        _write_heartbeat(self.home, pid)
+        try:
+            result = disconnect_module.disconnect(self.home, grace=10.0, kill_after=5.0)
+            self.assertEqual(result["outcome"], "stopped")
+            self.assertEqual(result["pid"], pid)
+            self.assertEqual(result["signal"], "SIGTERM")
+            self.assertLess(result["waited_ms"], 2000)  # nowhere near the 10s grace
+        finally:
+            os.waitpid(pid, 0)  # this test's process is the real parent; reap it
+
     # -- not_running (D1) ---------------------------------------------------------------------
 
     def test_a_home_with_no_heartbeat_is_not_running(self):
