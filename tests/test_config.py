@@ -82,9 +82,16 @@ class ConfigPrecedenceTest(unittest.TestCase):
         config = config_module.load(args)
         self.assertEqual(config.home, Path.home() / ".keel" / "localhost-18081")
 
-    def test_executor_defaults_to_claude_code(self):
+    def test_executor_defaults_to_claude(self):
+        """Since spec `005-copilot-executor` the canonical name is `claude` (design §5.3), and
+        `claude` is also what the selection order falls back to when nothing decides -- whether
+        that is because both CLIs are on `PATH` (`ambiguous-path`) or neither is (`default`).
+        `claude-code` remains a permanent accepted *input* alias (C-12); it is simply no longer
+        the word the runtime says back.
+        """
         config = config_module.load(self._args(base_url="http://flag"))
-        self.assertEqual(config.executor, "claude-code")
+        self.assertEqual(config.executor, "claude")
+        self.assertIn(config.executor_source, ("ambiguous-path", "default", "path", "host"))
 
     def test_credential_backend_defaults_to_auto(self):
         config = config_module.load(self._args(base_url="http://flag"))
