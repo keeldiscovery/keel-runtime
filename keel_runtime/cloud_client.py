@@ -8,6 +8,14 @@ Standard library only: `urllib.request`. Every non-2xx response is parsed into a
 body shape (spec edge case: "the runtime treats any 401 as credential no longer
 accepted regardless of body"). A request that never reaches Cloud at all (DNS,
 connection refused, timeout) raises `NetworkError`.
+
+A `410` carrying `{"error": {"code": "AGENT_SESSION_SUPERSEDED", ...}}` is raised as
+`AgentSessionSuperseded` (keel-cloud spec `035-one-runtime-per-founder`: a second runtime
+connected to this founder account and took over, ending this one's agent session) -- deliberately
+*not* folded into `AuthenticationExpired`, because the two demand opposite responses: a 401 means
+"re-authenticate", a 410-superseded means "this runtime is done; re-authenticating would only
+fight the new runtime for the account". A `410` carrying any other code -- or no parseable code at
+all -- is still an `ApiError`, exactly as any other non-2xx, non-401 status.
 """
 from __future__ import annotations
 
@@ -40,6 +48,24 @@ class ApiError(Exception):
 
 class AuthenticationExpired(Exception):
     """Raised for any 401 response -- the stored credential is no longer accepted."""
+
+
+class AgentSessionSuperseded(Exception):
+    """Raised for a 410 whose body's error code is `AGENT_SESSION_SUPERSEDED` (keel-cloud spec
+    `035-one-runtime-per-founder`): another runtime connected to this founder account and took
+    this one's agent session over. Unlike `AuthenticationExpired`, catching this must never
+    re-authorize -- the new runtime already holds the account, and racing it for the credential
+    is exactly the failure this exception exists to let callers avoid. A 410 carrying any other
+    code stays an `ApiError`, as it always has.
+
+    Carries the server's own `message` -- the one meant for a founder to read (e.g. "another
+    runtime connected to this account and took over ... run keel connect here again to take it
+    back") -- verbatim, so a caller can print it rather than invent its own wording.
+    """
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 class NetworkError(Exception):
@@ -154,6 +180,8 @@ class CloudClient:
                     f"401 from {method} {path}"
                 ) from exc
             code, message = self._parse_error_body(raw, status)
+            if status == 410 and code == "AGENT_SESSION_SUPERSEDED":
+                raise AgentSessionSuperseded(message) from exc
             raise ApiError(status, code, message) from exc
         except urllib.error.URLError as exc:
             raise NetworkError(str(exc.reason)) from exc

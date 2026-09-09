@@ -21,7 +21,7 @@ from . import auth as auth_module
 from . import config as config_module
 from . import disconnect as disconnect_module
 from . import heartbeat as heartbeat_module
-from .cloud_client import AuthenticationExpired, CloudClient
+from .cloud_client import AgentSessionSuperseded, AuthenticationExpired, CloudClient
 from .credential_store import CredentialStore
 from .executor import get_executor
 from .poller import run_loop
@@ -342,6 +342,14 @@ def _run_connect(args) -> int:
         final_state = run_loop(client, state, executor, store, config)
         if final_state is not None:
             state = final_state
+    except AgentSessionSuperseded as exc:
+        # keel-cloud spec 035-one-runtime-per-founder: a newer runtime already took this
+        # account's agent session over. Report it, remove the heartbeat ourselves (there is no
+        # signal here to make the shutdown handler do it), leave the credential exactly as it
+        # is, and return without even trying the goodbye -- the session it would address is
+        # already gone, and a 404 for it would just be swallowed anyway.
+        _report_superseded(exc, config)
+        return 0
     except KeyboardInterrupt:
         pass
 
@@ -351,6 +359,23 @@ def _run_connect(args) -> int:
         # A second Ctrl+C/SIGTERM while the goodbye is in flight is still a clean exit (G1).
         pass
     return 0
+
+
+def _report_superseded(exc: AgentSessionSuperseded, config) -> None:
+    """keel-cloud spec `035-one-runtime-per-founder` (`003-keel-disconnect`'s amendment): a
+    runtime-authenticated route answered `410 AGENT_SESSION_SUPERSEDED` -- another runtime
+    connected to this founder account and took this one's agent session over.
+
+    One line, in the same machine-readable `KEEL_*` signal-line family as `KEEL_USER_CODE=` and
+    `KEEL_ENVIRONMENT=`, naming the server's own founder-facing message verbatim. The heartbeat is
+    removed directly, exactly as the SIGINT/SIGTERM handler would (`_install_heartbeat_shutdown_
+    handlers`) -- there is no signal here to make it do that for us, and a founder running `keel
+    status` right after must read `not_running`, not a stale record of a session that is already
+    dead. The credential is left untouched: it is what lets `keel connect` here issue a fresh
+    agent session and take the account back.
+    """
+    print(f"KEEL_SUPERSEDED=1 message={exc.message}", flush=True)
+    heartbeat_module.remove(config.home)
 
 
 # One call, a two-second timeout, no retry, no backoff -- the opposite of the poll loop, which
