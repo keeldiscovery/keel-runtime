@@ -30,8 +30,12 @@ from .config import (
     DEFAULT_JOB_BUDGET_USD,
     DEFAULT_JOB_MAX_TURNS,
     DEFAULT_JOB_TIMEOUT_SECONDS,
+    canonical_executor_name,
 )
-from .response_validator import InvalidResponse  # re-exported for executor callers
+from .response_validator import (  # InvalidResponse re-exported for executor callers
+    InvalidResponse,
+    validate_response,
+)
 
 __all__ = [
     "InferenceRequest",
@@ -43,6 +47,10 @@ __all__ = [
     "SYSTEM_PROMPT",
     "build_prompt",
     "ClaudeCodeExecutor",
+    "CopilotExecutor",
+    "canonical_executor_name",
+    "COPILOT_EXCLUDED_TOOLS",
+    "COPILOT_MAX_PROMPT_BYTES",
     "get_executor",
 ]
 
@@ -214,15 +222,40 @@ def _build_envelope_schema(response_contract: dict) -> dict:
 # spec FR-002: nothing reaches the child but the CLI's own auth/config and the handful
 # of locale/terminal variables a subprocess conventionally needs -- never `KEEL_HOME`,
 # never `KEEL_BASE_URL`, never the shell's other leftovers.
-_ALLOWED_ENV_EXACT = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM"}
+#
+# **Each executor's allow-list is its own** (design C-4): `ClaudeCodeExecutor` passes
+# `ANTHROPIC_*`/`CLAUDE_*`, `CopilotExecutor` passes `COPILOT_*`, `GH_TOKEN`,
+# `GITHUB_TOKEN` and `GH_HOST`, and **neither passes the other's**. Neither passes an
+# interpreter variable either (invariant R-3): `PYTHONPATH` is how the skill reaches the
+# runtime, and it has no business inside a host CLI's process.
+_ALLOWED_ENV_EXACT = frozenset({"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM"})
+
+_CLAUDE_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
+_CLAUDE_ENV_EXACT = frozenset()
+
+# `COPILOT_GITHUB_TOKEN` > `GH_TOKEN` > `GITHUB_TOKEN` > the stored OAuth credential is
+# the CLI's own documented order (`copilot help environment`, read 2026-09-09), so all
+# three names travel; `GH_HOST` names the GitHub the token belongs to and travels with
+# them. `COPILOT_HOME` is a `COPILOT_*` and is how a caller isolates the stored
+# credential -- which is what made the C-6 measurement possible.
+_COPILOT_ENV_PREFIXES = ("COPILOT_",)
+_COPILOT_ENV_EXACT = frozenset({"GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"})
 
 
-def _build_env() -> dict:
+def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> dict:
+    """One allow-list mechanism, one per-executor argument pair (C-4).
+
+    The common set -- `PATH`, `HOME`, `USER`, `LANG`, `TMPDIR`, `TERM` and every `LC_*` --
+    is the same for both because it is what any subprocess conventionally needs; the
+    prefixes and the extra exact names are the executor's own.
+    """
     env = {}
     for key, value in os.environ.items():
         if key in _ALLOWED_ENV_EXACT or key.startswith("LC_"):
             env[key] = value
-        elif key.startswith("ANTHROPIC_") or key.startswith("CLAUDE_"):
+        elif key in extra_exact:
+            env[key] = value
+        elif any(key.startswith(prefix) for prefix in prefixes):
             env[key] = value
     return env
 
@@ -383,7 +416,7 @@ class ClaudeCodeExecutor(Executor):
                 text=True,
                 timeout=self.timeout_seconds,
                 cwd=str(job_dir),
-                env=_build_env(),
+                env=_build_env(_CLAUDE_ENV_PREFIXES, _CLAUDE_ENV_EXACT),
             )
         except subprocess.TimeoutExpired as exc:
             raise ExecutorTimeout(
@@ -485,12 +518,521 @@ class ClaudeCodeExecutor(Executor):
         return structured_output
 
 
+# ---------------------------------------------------------------------------------
+# `CopilotExecutor` -- the second host (design keel-skill-design.md §5.4, C-1..C-8)
+# ---------------------------------------------------------------------------------
+#
+# Everything above this line is shared with `ClaudeCodeExecutor` on purpose: `build_prompt`,
+# `_prompt_sections`, `_render_prompt` and `_build_envelope_schema` are the *runtime's*, not
+# the host's. Send two hosts two different prompts and the instruction eval measures two
+# different things (C-8).
+#
+# Where the two hosts genuinely differ is what the CLI will accept as a flag. `claude` takes
+# `--system-prompt`, `--json-schema`, `--max-turns`, `--max-budget-usd` and a timeout; `copilot`
+# takes **none of them**. So the two sections Claude gets as flags move into the prompt text --
+# above TASK and outside the KEEL-DATA fence, because this is the executor talking to the model
+# about the task, not source material -- and the schema, enforced by the CLI on the Claude path,
+# is asked for in prose here and checked afterwards by `response_validator`. That is why the
+# stdlib subset validator is load-bearing on this path (design §4.4, R-2).
+
+# Measured 2026-09-09, GitHub Copilot CLI 1.0.83, on the founder's Mac. `--available-tools ""`
+# was measured to be *ignored* (18 tools survived it); `--excluded-tools` with the names
+# enumerated reaches `tool_count: 0`. Two names in this list are reported back by 1.0.83 as
+# "Unknown tool name in the tool excludedlist" -- `rg`, which older sessions carried, and
+# nothing else -- and an unknown name is a harmless `session.info`, so the list is deliberately
+# a superset of what one CLI version knows.
+#
+# **An enumeration rots the day Copilot ships a new tool, and it did so during this very
+# spec**: a run that dropped `apply_patch` from the list came back `tool_count: 1` with
+# `apply_patch` still available to the model. That is exactly why C-1 makes the closed shape a
+# per-job assertion (`_assert_closed_shape`) rather than a claim this constant makes once.
+COPILOT_EXCLUDED_TOOLS = (
+    "apply_patch",
+    "bash",
+    "create",
+    "edit",
+    "fetch_copilot_cli_documentation",
+    "glob",
+    "grep",
+    "list_agents",
+    "list_bash",
+    "read_agent",
+    "read_bash",
+    "rg",
+    "session_store_sql",
+    "skill",
+    "sql",
+    "stop_bash",
+    "task",
+    "view",
+    "web_fetch",
+    "write_agent",
+)
+
+# C-2: the prompt is one argv element through a list `subprocess.run`, never a shell string, so
+# the nonce fence and every character of a stranger's answer survive verbatim. Above this guard
+# the executor refuses by name rather than letting the operating system's `ARG_MAX` surface as
+# an `ExecutorUnavailable` nobody can act on.
+COPILOT_MAX_PROMPT_BYTES = 512 * 1024
+
+# `--max-ai-credits` is a soft cap and 1.0.83 refuses anything below 30 ("Use at least 30 AI
+# credits", measured). It is not a budget in dollars and is never read back as one (C-7).
+COPILOT_MIN_AI_CREDITS = 30
+DEFAULT_COPILOT_MAX_AI_CREDITS = 30
+
+# **C-6, measured 2026-09-09 against Copilot CLI 1.0.83 with an isolated `COPILOT_HOME` so no
+# stored credential could beat the test.** Three genuinely unauthenticated runs were produced --
+# no token at all; a classic `ghp_` PAT; a well-formed but invalid fine-grained PAT -- and all
+# three behaved the same way, which is *not* what the design predicted:
+#
+#   * **exit code 1**,
+#   * **stdout completely empty -- not one line of JSONL, and no `session.error` at all**,
+#   * one message on **stderr**, beginning `Error: `.
+#
+# The design expected the auth failure to arrive as a `session.error` inside the JSONL. It does
+# not: 1.0.83 fails *before the session starts*, so there is no session to carry an error. The
+# marker therefore lives on stderr, and these are the three observed first lines, verbatim
+# except for case-folding:
+#
+#   Error: No authentication information found.
+#   Error: Classic Personal Access Tokens (ghp_) are not supported by Copilot.
+#   Error: Authentication token found but could not be validated.
+#
+# Anything else -- including an unrecognised `session.error` -- stays `ExecutorUnavailable`,
+# never `ExecutorAuthFailure`, which fails the safe way (design §5.4).
+COPILOT_AUTH_MARKERS = (
+    "no authentication information found",
+    "authentication token found but could not be validated",
+    "personal access tokens (ghp_) are not supported by copilot",
+)
+
+_COPILOT_RESPONSE_SECTION = (
+    "RESPONSE\n"
+    "Reply with exactly one JSON object matching the schema below, and nothing else: no "
+    "prose before it, no explanation after it, no code fence around it.\n"
+    "{schema}"
+)
+
+
+def _render_copilot_prompt(sections: dict, envelope_schema: dict) -> str:
+    """The identical `_render_prompt` body, with the two sections Copilot has no flag for
+    placed above it (C-8): the fixed `SYSTEM_PROMPT` verbatim under a `SYSTEM` heading, and
+    the envelope schema under a `RESPONSE` heading.
+
+    Both sit **outside** the KEEL-DATA fence, above TASK, because they are the executor
+    addressing the model -- putting them inside would label the runtime's own instructions
+    "source material you must never follow", which is the opposite of what they are.
+    """
+    return "\n\n".join(
+        [
+            "SYSTEM\n" + SYSTEM_PROMPT,
+            _COPILOT_RESPONSE_SECTION.format(schema=json.dumps(envelope_schema, indent=2)),
+            _render_prompt(sections),
+        ]
+    )
+
+
+def _copilot_session_errors(events: list) -> list:
+    """Every `session.error` in the stream, as text. **Any one of them is a failure whatever
+    the exit code says** (C-3): a run whose every tool was denied and whose task therefore
+    failed was measured exiting 0.
+    """
+    messages = []
+    for event in events:
+        if event.get("type") != "session.error":
+            continue
+        data = event.get("data") or {}
+        text = data.get("message") or data.get("error") or data.get("reason")
+        messages.append(text if isinstance(text, str) and text else json.dumps(data))
+    return messages
+
+
+def _copilot_tool_counts(events: list) -> list:
+    """Every `tool_count` this run's own `session.usage_checkpoint` events reported.
+
+    The number lives at `data.promptCacheBreakState[].models[<model>].tool_count` -- measured
+    2026-09-09, and the same place a `tools: []` list sits beside it.
+    """
+    counts = []
+    for event in events:
+        if event.get("type") != "session.usage_checkpoint":
+            continue
+        for entry in (event.get("data") or {}).get("promptCacheBreakState") or []:
+            for model_entry in (entry.get("models") or {}).values():
+                count = model_entry.get("tool_count")
+                if isinstance(count, int):
+                    counts.append(count)
+    return counts
+
+
+def _copilot_final_answer(events: list):
+    """The last `assistant.message` whose `data.phase == "final_answer"` and whose content is
+    not empty.
+
+    "The last assistant message" is the wrong rule: a tool-calling turn emits an
+    `assistant.message` with empty `content` and a populated `toolRequests`, and a streamed
+    answer emits a run of `assistant.message_delta` events before it. Only the
+    `final_answer`-phase message carries the whole answer.
+    """
+    answer = None
+    for event in events:
+        if event.get("type") != "assistant.message":
+            continue
+        data = event.get("data") or {}
+        if data.get("phase") != "final_answer":
+            continue
+        content = data.get("content")
+        if isinstance(content, str) and content.strip():
+            answer = content
+    return answer
+
+
+def _copilot_turn_count(events: list) -> int:
+    return sum(1 for event in events if event.get("type") == "assistant.turn_end")
+
+
+def _copilot_premium_requests(events: list):
+    """`usage.premiumRequests` from the final `result` event, falling back to
+    `totalPremiumRequests` on the last `session.usage_checkpoint`. **Never converted into
+    dollars** (C-7): Copilot reports premium requests, and the runtime does not invent a
+    figure it was not given.
+    """
+    value = None
+    for event in events:
+        if event.get("type") == "result":
+            usage = event.get("usage") or {}
+            if isinstance(usage.get("premiumRequests"), (int, float)):
+                value = usage["premiumRequests"]
+        elif event.get("type") == "session.usage_checkpoint":
+            total = (event.get("data") or {}).get("totalPremiumRequests")
+            if value is None and isinstance(total, (int, float)):
+                value = total
+    return value
+
+
+def _copilot_exit_code(events: list):
+    for event in events:
+        if event.get("type") == "result" and isinstance(event.get("exitCode"), int):
+            return event["exitCode"]
+    return None
+
+
+_JSON_FENCE_PREFIXES = ("```json", "```JSON", "```")
+
+
+def _strip_json_fence(text: str) -> str:
+    """Removes an optional ```json ... ``` fence. Asked for without one, a model still
+    sometimes wraps its answer -- measured 2026-09-09, where a run answered
+    ```json\\n{...}\\n``` -- and refusing that would be refusing a correct answer over its
+    packaging.
+    """
+    stripped = text.strip()
+    for prefix in _JSON_FENCE_PREFIXES:
+        if stripped.startswith(prefix):
+            stripped = stripped[len(prefix):]
+            if stripped.endswith("```"):
+                stripped = stripped[: -len("```")]
+            return stripped.strip()
+    return stripped
+
+
+def _mentions_copilot_auth_failure(text) -> bool:
+    if not isinstance(text, str):
+        return False
+    lowered = text.lower()
+    return any(marker in lowered for marker in COPILOT_AUTH_MARKERS)
+
+
+class CopilotExecutor(Executor):
+    """Invokes the `copilot` CLI in the same closed, tool-less, session-less shape.
+
+    Behind the same `Executor` ABC, returning the same `{outcome, questions?|result?}` dict and
+    raising the same three exceptions -- `ExecutorUnavailable`, `ExecutorAuthFailure`,
+    `ExecutorTimeout` -- so `poller` cannot tell which host it is talking to.
+
+    Four things differ from `ClaudeCodeExecutor`, and each is a design invariant:
+
+    * **the closed shape is verified per job, not asserted once** (C-1) -- every run's own
+      `session.usage_checkpoint` must report `tool_count: 0`;
+    * **success is decided by the JSONL, never by `returncode`** (C-3) -- a failed run was
+      measured exiting 0, and a bogus-token run exiting 1 with no JSONL at all;
+    * **the timeout is the caller's** -- Copilot has no wall-clock flag, so
+      `subprocess.run(timeout=...)` is the only clock, at the same 300s the Claude path uses;
+    * **no dollar figure is invented** (C-7) -- `last_envelope` carries `premium_requests` and
+      no `total_cost_usd` at all.
+
+    Exposes `last_envelope`, `last_request_sections`, `last_events` and `last_schema_error`
+    after each call, exactly as the Claude executor does, so `poller` logs both hosts the same
+    way without knowing which it has.
+    """
+
+    def __init__(
+        self,
+        binary: str = "copilot",
+        home: Path | str | None = None,
+        timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+        model: str | None = None,
+        max_ai_credits: int = DEFAULT_COPILOT_MAX_AI_CREDITS,
+    ):
+        self.binary = binary
+        self.home = Path(home) if home is not None else DEFAULT_HOME
+        self.timeout_seconds = timeout_seconds
+        # C-5: `auto` is never used in a *measured* run, and `--model` is the only way to say
+        # so. It is `None` here rather than a hard-coded slug because pinning is a property of
+        # the machine's Copilot catalogue, not of this source file: on the founder's Mac,
+        # 2026-09-09, CLI 1.0.83 rejected **every** slug offered to `--model`
+        # (`gpt-5.1`, `gpt-4.1`, `gpt-5-mini`, `claude-sonnet-4.5`, `claude-haiku-4.5`,
+        # `gpt-5-codex`, and even `mai-code-1.1-flash`, the model its own router had just
+        # chosen) with `Model "..." from --model flag is not available.` -- so a constant here
+        # would have made every run on that machine fail. `KEEL_COPILOT_MODEL` (or
+        # `copilot_model` in `config.json`) supplies it, and the `KEEL_EXECUTOR=` startup line
+        # prints `model=auto` when nothing did, so an unpinned run is never silently measured.
+        self.model = model or None
+        self.max_ai_credits = max(int(max_ai_credits), COPILOT_MIN_AI_CREDITS)
+        self.last_envelope: dict | None = None
+        self.last_request_sections: dict | None = None
+        self.last_events: list | None = None
+        self.last_schema_error: str | None = None
+
+    def _build_argv(self, prompt: str, job_dir: Path) -> list:
+        """The design's argv, one process per job. Every flag here was accepted by 1.0.83.
+
+        No `--json-schema`, no `--system-prompt`, no `--max-turns` and no timeout flag exist on
+        this CLI; the first two moved into the prompt (`_render_copilot_prompt`), the last two
+        have no equivalent and the timeout is ours.
+        """
+        argv = [self.binary, "-p", prompt]
+        for tool in COPILOT_EXCLUDED_TOOLS:
+            # Variadic in commander, so one flag per name: `--excluded-tools a b c` would eat
+            # the flags that follow it.
+            argv.append("--excluded-tools=" + tool)
+        argv += [
+            "--disable-builtin-mcps",
+            "--no-custom-instructions",
+            "--no-ask-user",
+            "--no-remote",
+            "--no-remote-export",
+            "--no-auto-update",
+            "--no-color",
+            "--output-format",
+            "json",
+            "--log-level",
+            "none",
+            "--max-ai-credits",
+            str(self.max_ai_credits),
+            "-C",
+            str(job_dir),
+        ]
+        if self.model:
+            argv += ["--model", self.model]
+        return argv
+
+    def _invoke(self, prompt: str, job_dir: Path):
+        argv = self._build_argv(prompt, job_dir)
+        try:
+            completed = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+                cwd=str(job_dir),
+                env=_build_env(_COPILOT_ENV_PREFIXES, _COPILOT_ENV_EXACT),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ExecutorTimeout(
+                f"'{self.binary}' did not respond within {self.timeout_seconds}s"
+            ) from exc
+        except OSError as exc:
+            raise ExecutorUnavailable(str(exc)) from exc
+
+        return _parse_stream_events(completed.stdout), completed
+
+    def _assert_ran(self, events: list, completed) -> None:
+        """C-6 and C-3, in that order: did this run authenticate, and did the session fail?
+
+        The auth check reads **stderr and every `session.error` together**, because 1.0.83 puts
+        an authentication failure on stderr with an empty stdout (no session ever starts), while
+        the design anticipated it inside the JSONL. Reading both means the marker keeps working
+        if a later CLI moves it.
+        """
+        session_errors = _copilot_session_errors(events)
+        stderr = (completed.stderr or "").strip()
+
+        for text in [stderr] + session_errors:
+            if _mentions_copilot_auth_failure(text):
+                raise ExecutorAuthFailure(text.splitlines()[0] if text else "not authenticated")
+
+        if session_errors:
+            # An unrecognised `session.error` is `ExecutorUnavailable`, never
+            # `ExecutorAuthFailure` -- the CAPIError 400 "The requested model is not supported"
+            # an invalid token once produced is an authentication failure wearing a model
+            # failure's clothes, and matching on it would be matching on a lie (design §5.4).
+            raise ExecutorUnavailable("; ".join(session_errors))
+
+        if not events:
+            raise ExecutorUnavailable(
+                stderr or f"'{self.binary}' produced no output (exit {completed.returncode})"
+            )
+
+    def _assert_closed_shape(self, events: list) -> None:
+        """C-1: the closed shape is verified **per job**, not asserted once by
+        `COPILOT_EXCLUDED_TOOLS`. A non-zero `tool_count` fails the job **before its answer is
+        used** -- the answer of a model that had tools is not an answer this runtime will
+        forward, whatever it says.
+
+        A run with no `session.usage_checkpoint` at all fails the same way: an unverifiable
+        closed shape is not a closed shape.
+        """
+        counts = _copilot_tool_counts(events)
+        if not counts:
+            raise ExecutorUnavailable(
+                "the closed shape could not be verified: this run reported no "
+                "session.usage_checkpoint, so tool_count is unknown"
+            )
+        if any(count != 0 for count in counts):
+            raise ExecutorUnavailable(
+                "the closed shape was not held: this run reported tool_count "
+                f"{max(counts)}, not 0 -- the tool enumeration is out of date"
+            )
+
+    def _read_answer(self, events: list, response_contract: dict) -> dict:
+        """Parse, then validate. Every step is a refusal if it fails.
+
+        `InvalidResponse` here is the *recoverable* class of failure -- the model answered, and
+        answered wrongly -- which is what feeds FR-011's one recovery pass below.
+        """
+        text = _copilot_final_answer(events)
+        if text is None:
+            raise InvalidResponse("executor produced no final_answer message")
+
+        try:
+            parsed = json.loads(_strip_json_fence(text))
+        except ValueError as exc:
+            raise InvalidResponse(f"final_answer is not JSON: {exc}") from exc
+
+        if not isinstance(parsed, dict):
+            raise InvalidResponse("final_answer is not a JSON object")
+
+        # The same validator the Claude path's `poller` uses. On Claude the CLI enforced the
+        # schema during the call; here the runtime is the only thing between a model's prose
+        # and `poller`, which is where §4.4's optional-`jsonschema` trade bites (R-2).
+        validate_response(parsed, response_contract)
+        return parsed
+
+    def execute(self, request: InferenceRequest) -> dict:
+        if shutil.which(self.binary) is None:
+            raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
+
+        # Cleared per call, so a reused executor never reports the previous job's envelope
+        # alongside this job's failure.
+        self.last_envelope = None
+        self.last_events = None
+        self.last_schema_error = None
+
+        sections = _prompt_sections(request)
+        self.last_request_sections = sections
+
+        response_contract = request.request_payload.get("response_contract") or {}
+        envelope_schema = _build_envelope_schema(response_contract)
+        prompt = _render_copilot_prompt(sections, envelope_schema)
+
+        size = len(prompt.encode("utf-8"))
+        if size > COPILOT_MAX_PROMPT_BYTES:
+            # C-2: refuse by name, above the guard, rather than letting `ARG_MAX` surface as an
+            # `ExecutorUnavailable` that reads like a broken CLI.
+            raise InvalidResponse(
+                f"prompt is {size} bytes, above the {COPILOT_MAX_PROMPT_BYTES}-byte limit one "
+                "argv element may carry"
+            )
+
+        job_dir = self.home / "jobs" / request.job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+
+        events, completed = self._invoke(prompt, job_dir)
+        all_events = list(events)
+        self.last_events = all_events
+
+        self._assert_ran(all_events, completed)
+        self._assert_closed_shape(all_events)
+
+        try:
+            answer = self._read_answer(all_events, response_contract)
+        except InvalidResponse as first_failure:
+            # spec 002-words-are-words FR-011, unchanged: one recovery pass, quoting the
+            # refusal. On the Claude path the CLI produced that refusal; here the runtime's own
+            # validator did, and `last_schema_error` carries it either way.
+            self.last_schema_error = str(first_failure)
+            recovery_prompt = prompt + "\n\n" + _RECOVERY_SECTION_TEMPLATE.format(
+                error=self.last_schema_error
+            )
+            events2, completed2 = self._invoke(recovery_prompt, job_dir)
+            all_events.extend(events2)
+            self.last_events = all_events
+            self._assert_ran(events2, completed2)
+            self._assert_closed_shape(events2)
+            try:
+                answer = self._read_answer(events2, response_contract)
+            except InvalidResponse as second_failure:
+                self.last_schema_error = str(second_failure)
+                self.last_envelope = self._envelope(all_events, structured_output=None)
+                raise
+            self.last_envelope = self._envelope(
+                all_events, structured_output=answer, recovery_pass=True
+            )
+            return answer
+
+        self.last_envelope = self._envelope(all_events, structured_output=answer)
+        return answer
+
+    def _envelope(self, events: list, structured_output, recovery_pass: bool = False) -> dict:
+        """`last_envelope`, normalised into the same shape `poller` already logs for Claude --
+        with **`total_cost_usd` absent, not zero** (C-7). `num_turns` is the count of
+        `assistant.turn_end` events, which is the only turn number this CLI reports.
+        """
+        envelope = {
+            "type": "result",
+            "is_error": structured_output is None,
+            "structured_output": structured_output,
+            "num_turns": _copilot_turn_count(events),
+            "executor": "copilot",
+        }
+        premium = _copilot_premium_requests(events)
+        if premium is not None:
+            envelope["premium_requests"] = premium
+        exit_code = _copilot_exit_code(events)
+        if exit_code is not None:
+            envelope["exit_code"] = exit_code
+        if recovery_pass:
+            envelope["recovery_pass"] = True
+        return envelope
+
+
+def _make_claude(home, budget_usd, max_turns, timeout_seconds, copilot_model):
+    return ClaudeCodeExecutor(
+        home=home,
+        budget_usd=budget_usd,
+        max_turns=max_turns,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _make_copilot(home, budget_usd, max_turns, timeout_seconds, copilot_model):
+    # `budget_usd` and `max_turns` are accepted and dropped on purpose: this CLI has no flag
+    # for either, and silently pretending otherwise would be worse than saying so here (C-7).
+    return CopilotExecutor(home=home, timeout_seconds=timeout_seconds, model=copilot_model)
+
+
+# `claude` and `copilot` are the canonical names (design §5.3). **`claude-code` is a permanent
+# accepted alias** (C-12): `test_s004_stranger_who_gives_orders.py` passes `executor="claude-code"`
+# today, and breaking a green scenario to save eight characters is not a trade.
 _EXECUTORS = {
-    "claude-code": lambda home, budget_usd, max_turns, timeout_seconds: ClaudeCodeExecutor(
-        home=home, budget_usd=budget_usd, max_turns=max_turns,
-        timeout_seconds=timeout_seconds
-    ),
+    "claude": _make_claude,
+    "claude-code": _make_claude,
+    "copilot": _make_copilot,
 }
+
+# `canonical_executor_name` lives in `config` (one place decides the alias) and is re-exported
+# here because callers of this module are the ones that need it.
 
 
 _DEFAULT_SCRIPT_PATH = Path(__file__).parent / "testing" / "scripts" / "countly-problem.json"
@@ -504,6 +1046,7 @@ def get_executor(
     max_turns: int = DEFAULT_JOB_MAX_TURNS,
     timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
     context_keys_path: str | Path | None = None,
+    copilot_model: str | None = None,
 ) -> Executor:
     if name == "stub":
         # Lazy import: keel_runtime.testing is a test-only dependency of the package,
@@ -525,4 +1068,4 @@ def get_executor(
     if factory is None:
         known = ", ".join(sorted(list(_EXECUTORS.keys()) + ["stub", "scripted"]))
         raise SystemExit(f"unknown executor '{name}'; known executors: {known}")
-    return factory(home, budget_usd, max_turns, timeout_seconds)
+    return factory(home, budget_usd, max_turns, timeout_seconds, copilot_model)

@@ -70,7 +70,7 @@ class CliStatusTest(unittest.TestCase):
                 "home": str(self.home),
                 "base_url": None,
                 "environment": None,
-                "executor": "claude-code",
+                "executor": "claude",
                 "executor_on_path": payload["executor_on_path"],
             },
         )
@@ -98,7 +98,7 @@ class CliStatusTest(unittest.TestCase):
                 "connected": True,
                 "home": str(self.home),
                 "environment": "cloud.keel.example",
-                "executor": "claude-code",
+                "executor": "claude",
                 "executor_on_path": payload["executor_on_path"],
             },
         )

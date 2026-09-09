@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -46,7 +47,52 @@ _RESERVED_SUFFIX = "-keel"
 # Everything outside this class is replaced with `-` before a slug reaches the filesystem (§6.3).
 _UNSAFE_SLUG_CHARACTERS = re.compile(r"[^a-z0-9.-]")
 
-DEFAULT_EXECUTOR = "claude-code"
+# The canonical names are `claude` and `copilot` (design §5.3); `claude-code` remains a
+# permanent accepted alias (C-12). `claude` is also the **default when nothing decides**
+# (design decision 8, overrulable): every mark in keel-e2e-eval's `instructions/marks.toml` was
+# measured through the Claude path, so on a machine that offers both and says nothing, the
+# measured one is the honest choice -- and the runtime says it chose that way rather than
+# being told to.
+DEFAULT_EXECUTOR = "claude"
+
+# Which CLI each named executor needs on `PATH`. `scripted` and `stub` run in this process and
+# need none.
+EXECUTOR_BINARIES = {"claude": "claude", "claude-code": "claude", "copilot": "copilot"}
+IN_PROCESS_EXECUTORS = frozenset({"scripted", "stub"})
+
+# The alias, resolved in one place, so `status`, the `KEEL_EXECUTOR=` line and `get_executor`
+# all say the same word. `executor.py` imports this rather than redefining it (it already
+# imports this module; this module must never import it back).
+EXECUTOR_ALIASES = {"claude-code": "claude"}
+
+
+def canonical_executor_name(name):
+    """`claude-code` -> `claude`; everything else unchanged, including names this runtime does
+    not know (an unknown name is reported as it was given, never guessed at).
+    """
+    return EXECUTOR_ALIASES.get(name, name)
+
+# Where an executor name came from -- printed as `source=` on the `KEEL_EXECUTOR=` startup line
+# (C-9). The same vocabulary `resolve_runtime` uses in the skill, and for the same reason: the
+# founder and the referee should both see *why*, not only *what*.
+EXECUTOR_SOURCES = ("flag", "env", "config", "host", "path", "ambiguous-path", "default")
+
+# design §5.3 step 2: the environment this process was launched into. **Step 2's evidence is
+# thin, and that is why step 1 exists.** `CLAUDECODE=1` is documented; Copilot's two markers
+# are not a documented API (they appear in the CLI's changelog at 1.0.29 and 0.0.421, and
+# GitHub issue #2107 asking for a stable one has been open since 2026-03-17); `AI_AGENT` is the
+# nearest cross-vendor convention. All were measured set.
+ENV_HOST_MARKERS = (
+    "COPILOT_AGENT_SESSION_ID",
+    "COPILOT_CLI",
+    "CLAUDECODE",
+    "AI_AGENT",
+)
+
+# spec 005 / C-5: the `--model` slug the Copilot path pins. Empty by default -- see
+# `CopilotExecutor.__init__` for why a constant here would be wrong.
+ENV_COPILOT_MODEL = "KEEL_COPILOT_MODEL"
+DEFAULT_COPILOT_MODEL = ""
 
 # Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
 # KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".
@@ -110,6 +156,11 @@ class RuntimeConfig:
     job_budget_usd: float
     job_max_turns: int
     job_timeout_seconds: float
+    # spec `005-copilot-executor`: **why** this executor was chosen, one of `EXECUTOR_SOURCES`,
+    # printed on the `KEEL_EXECUTOR=` startup line (C-9); and the `--model` slug the Copilot
+    # path pins, `None` when nothing pinned one (C-5).
+    executor_source: str = "default"
+    copilot_model: Optional[str] = None
 
     @property
     def environment(self) -> Optional[str]:
@@ -133,10 +184,127 @@ class StatusConfig:
     heartbeat_stale_after: float
     base_url: Optional[str] = None
     executor: str = DEFAULT_EXECUTOR
+    executor_source: str = "default"
 
     @property
     def environment(self) -> Optional[str]:
         return environment_for(self.base_url)
+
+
+
+def host_from_environment(environ=None):
+    """design §5.3 step 2: which **host** launched this process, from its environment markers.
+
+    Returns `"claude"`, `"copilot"`, or `None`. **Two different answers means no answer**, and
+    that is not hypothetical: the environment dump that taught this design those names was
+    `copilot` running *inside* Claude Code, carrying both hosts' markers at once.
+    `COPILOT_AGENT_SESSION_ID` leaks arbitrarily deep down a process tree -- it means
+    "somewhere in my ancestry", never "my parent".
+    """
+    environ = os.environ if environ is None else environ
+    answers = set()
+
+    if (environ.get("COPILOT_AGENT_SESSION_ID") or "").strip():
+        answers.add("copilot")
+    if (environ.get("COPILOT_CLI") or "").strip() == "1":
+        answers.add("copilot")
+    if (environ.get("CLAUDECODE") or "").strip() == "1":
+        answers.add("claude")
+
+    ai_agent = (environ.get("AI_AGENT") or "").strip().lower()
+    if ai_agent.startswith("github_copilot"):
+        answers.add("copilot")
+    elif ai_agent.startswith("claude-code"):
+        answers.add("claude")
+
+    if len(answers) == 1:
+        return answers.pop()
+    return None
+
+
+def _on_path(name) -> bool:
+    binary = EXECUTOR_BINARIES.get(name)
+    if binary is None:
+        return name in IN_PROCESS_EXECUTORS
+    return shutil.which(binary) is not None
+
+
+def executor_on_path(name) -> bool:
+    """`status`'s `executor_on_path` (C-10): is the CLI this executor needs actually reachable?
+
+    An in-process executor (`scripted`, `stub`) has no CLI to find and is always available;
+    reporting `false` for it would read as "broken" on a healthy deterministic run. A name this
+    runtime does not know is not available at all, and says so. **A `claude_on_path` boolean is
+    never built**, because it reads `false` on a healthy Copilot-hosted runtime, which is a lie
+    about health.
+    """
+    return _on_path(canonical_executor_name(name))
+
+
+def resolve_executor(args, file_config=None, environ=None):
+    """**The whole of design §5.3, in order** (C-9). Returns `(name, source)`.
+
+    ```
+    1  explicit:  --executor  >  KEEL_EXECUTOR  >  $KEEL_HOME/config.json["executor"]
+                  -> that one, always, even if its CLI is missing (it reports per job)
+    2  host:      --host, then the environment this process was launched into
+                  -> exactly one answer, take it; two different answers, take NEITHER
+    3  PATH:      exactly one of `copilot` / `claude` on PATH  -> that one
+    4  both on PATH and nothing above decided  -> claude, and say so
+    5  neither on PATH -> claude, and the caller prints KEEL_EXECUTOR_UNAVAILABLE
+    ```
+
+    Step 1 wins **even if its CLI is missing**: a founder who names an executor is answering the
+    question, and a runtime that second-guesses them has taken the answer away. The missing CLI
+    is reported per job as `EXECUTOR_UNAVAILABLE`, which is the truthful place for it.
+
+    `--host` is step 2 and not step 1: it is the *skill* telling the runtime which host it is
+    running under, which is a better host signal than the environment markers (the skill can see
+    its own invocation) but never an instruction from the founder.
+    """
+    file_config = file_config or {}
+    environ = os.environ if environ is None else environ
+
+    flag = getattr(args, "executor", None)
+    if flag:
+        return canonical_executor_name(flag), "flag"
+    env_named = environ.get(ENV_EXECUTOR)
+    if env_named:
+        return canonical_executor_name(env_named), "env"
+    file_named = file_config.get("executor")
+    if file_named:
+        return canonical_executor_name(file_named), "config"
+
+    host = getattr(args, "host", None)
+    if host and host != "auto":
+        return canonical_executor_name(host), "host"
+
+    host = host_from_environment(environ)
+    if host is not None:
+        return host, "host"
+
+    claude_present = _on_path("claude")
+    copilot_present = _on_path("copilot")
+    if claude_present and not copilot_present:
+        return "claude", "path"
+    if copilot_present and not claude_present:
+        return "copilot", "path"
+    if claude_present and copilot_present:
+        return DEFAULT_EXECUTOR, "ambiguous-path"
+    return DEFAULT_EXECUTOR, "default"
+
+
+def resolve_copilot_model(args, file_config=None, environ=None):
+    """`--copilot-model` > `KEEL_COPILOT_MODEL` > `config.json["copilot_model"]` > unpinned."""
+    file_config = file_config or {}
+    environ = os.environ if environ is None else environ
+    value = (
+        getattr(args, "copilot_model", None)
+        or environ.get(ENV_COPILOT_MODEL)
+        or file_config.get("copilot_model")
+        or DEFAULT_COPILOT_MODEL
+    )
+    return value or None
 
 
 def _default_home_root() -> Path:
@@ -383,17 +551,16 @@ def load_status_config(args) -> StatusConfig:
     """
     home, file_config, base_url = _resolve_home_and_base_url(args)
     heartbeat_stale_after = _resolve_heartbeat_stale_after(args, file_config)
-    executor = (
-        getattr(args, "executor", None)
-        or os.environ.get(ENV_EXECUTOR)
-        or file_config.get("executor")
-        or DEFAULT_EXECUTOR
-    )
+    # C-10: `status` reports the executor the **selection order** would actually choose, not
+    # the first term of it. A founder reading `keel status` and a founder reading the
+    # `KEEL_EXECUTOR=` line must never be told two different things.
+    executor, executor_source = resolve_executor(args, file_config)
     return StatusConfig(
         home=home,
         heartbeat_stale_after=heartbeat_stale_after,
         base_url=base_url,
         executor=executor,
+        executor_source=executor_source,
     )
 
 
@@ -412,12 +579,8 @@ def load(args) -> RuntimeConfig:
             f"{ENV_BASE_URL}, or add \"base_url\" to {home / 'config.json'}"
         )
 
-    executor = (
-        getattr(args, "executor", None)
-        or os.environ.get(ENV_EXECUTOR)
-        or file_config.get("executor")
-        or DEFAULT_EXECUTOR
-    )
+    executor, executor_source = resolve_executor(args, file_config)
+    copilot_model = resolve_copilot_model(args, file_config)
 
     credential_backend = (
         getattr(args, "credential_backend", None)
@@ -462,4 +625,6 @@ def load(args) -> RuntimeConfig:
         job_budget_usd=job_budget_usd,
         job_max_turns=job_max_turns,
         job_timeout_seconds=job_timeout_seconds,
+        executor_source=executor_source,
+        copilot_model=copilot_model,
     )

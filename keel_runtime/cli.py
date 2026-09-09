@@ -11,6 +11,7 @@ import argparse
 import json
 import shutil
 import signal
+import subprocess
 import sys
 
 from . import COPYRIGHT, LICENSE_URL, __license__, __version__
@@ -25,13 +26,10 @@ from .executor import get_executor
 from .poller import run_loop
 
 
-# Which CLI a named executor needs on `PATH`, for `status`'s `executor_on_path` (spec
-# 004-shipped-runtime FR-009, design C-10). `scripted` and `stub` run in this process and are
-# always available, so they are absent here and report `true`. Spec `005-copilot-executor` adds
-# `copilot` when the executor it names exists; `claude_on_path` is never built, because it reads
-# `false` on a healthy runtime that is not using Claude, which is a lie about health.
-_EXECUTOR_BINARIES = {"claude-code": "claude"}
-_IN_PROCESS_EXECUTORS = frozenset({"scripted", "stub"})
+# Which CLI a named executor needs on `PATH` now lives in `config` beside the selection order
+# that chooses between them (spec `005-copilot-executor`), because `status` and `connect` must
+# agree about both. `claude_on_path` is never built, because it reads `false` on a healthy
+# runtime that is not using Claude, which is a lie about health (C-10).
 
 
 def version_line() -> str:
@@ -96,7 +94,30 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument(
         "--executor",
         dest="executor",
-        help="executor to run jobs with: claude-code (default), stub or scripted (test-only)",
+        choices=["claude", "claude-code", "copilot", "scripted", "stub"],
+        help="executor to run jobs with: claude (default; claude-code is a permanent alias), "
+        "copilot, or stub/scripted (test-only). Named explicitly it wins outright -- even if "
+        "its CLI is missing, which is reported per job rather than second-guessed here.",
+    )
+    # design §5.3: **the skill passes the host through.** `keel_connect_check.py` runs the
+    # host-detection table itself and passes `--host <host>` to the `connect` it launches --
+    # only when the founder did not pass `--executor` themselves, and nothing at all when the
+    # table is silent or ambiguous. It is a host signal, never an instruction from the founder,
+    # so it sits at step 2 of the selection order and below every explicit term.
+    connect.add_argument(
+        "--host",
+        dest="host",
+        choices=["claude", "copilot", "auto"],
+        default="auto",
+        help="the host this runtime was launched under, when the caller knows (the skill does); "
+        "'auto' reads the environment's own host markers instead",
+    )
+    connect.add_argument(
+        "--copilot-model",
+        dest="copilot_model",
+        help="the --model slug to pin the copilot executor to (C-5); falls back to "
+        "KEEL_COPILOT_MODEL, then to config.json's copilot_model, then to Copilot's own "
+        "routing",
     )
     connect.add_argument(
         "--script",
@@ -169,6 +190,73 @@ def main(argv=None) -> int:
     return 1
 
 
+# One call, a one-second timeout: a version string is worth a line in the log and worth
+# nothing at all if it delays a connect.
+_VERSION_PROBE_TIMEOUT_SECONDS = 1.0
+
+
+def _binary_version(binary_path: str):
+    """`<binary> --version`'s first line, or `None` if it cannot be had. Best-effort by
+    design: the founder gets a version when one is cheap and the line without one when it is
+    not, and a connect is never held up for a decoration.
+    """
+    try:
+        completed = subprocess.run(
+            [binary_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_VERSION_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    output = (completed.stdout or completed.stderr or "").strip()
+    return output.splitlines()[0].strip() if output else None
+
+
+def executor_startup_lines(config) -> list:
+    """design §5.3 / C-9: the `KEEL_EXECUTOR=` line, and the `KEEL_EXECUTOR_UNAVAILABLE=` line
+    beneath it when the CLI that executor needs is not on `PATH`.
+
+    ```
+    KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=1.0.83 model=auto
+    KEEL_EXECUTOR=claude source=ambiguous-path  # both CLIs on PATH; pass --executor to choose
+    KEEL_EXECUTOR_UNAVAILABLE=copilot           # not on PATH; jobs report EXECUTOR_UNAVAILABLE
+    ```
+
+    `source` says **why**, not only what. The runtime still connects when the CLI is missing:
+    the founder's device is authorized either way, and each job reports `EXECUTOR_UNAVAILABLE`
+    on its own -- which is a far better failure than refusing to connect at all.
+    """
+    name = config.executor
+    source = config.executor_source
+    parts = [f"KEEL_EXECUTOR={name}", f"source={source}"]
+
+    binary = config_module.EXECUTOR_BINARIES.get(name)
+    binary_path = shutil.which(binary) if binary else None
+    if binary_path:
+        parts.append(f"binary={binary_path}")
+        version = _binary_version(binary_path)
+        if version:
+            parts.append(f"version={version}")
+    if name == "copilot":
+        # `model=auto` is not decoration: C-5 says a Copilot subject that does not pin a model
+        # measures the router, not a model, so an unpinned run must be visible in the log
+        # rather than inferred from the absence of a word.
+        parts.append(f"model={config.copilot_model or 'auto'}")
+
+    line = " ".join(parts)
+    if source == "ambiguous-path":
+        line += "  # both CLIs on PATH; pass --executor to choose"
+
+    lines = [line]
+    if binary is not None and binary_path is None:
+        lines.append(
+            f"KEEL_EXECUTOR_UNAVAILABLE={name}"
+            "  # not on PATH; jobs report EXECUTOR_UNAVAILABLE"
+        )
+    return lines
+
+
 def _run_connect(args) -> int:
     config = config_module.load(args)
     config.home.mkdir(parents=True, exist_ok=True)
@@ -179,6 +267,10 @@ def _run_connect(args) -> int:
         f"KEEL_ENVIRONMENT={config.environment} base_url={config.base_url}",
         flush=True,
     )
+    # C-9: **the runtime says which, always** -- one line at startup, into the log the skill is
+    # already reading, in the same machine-readable family as `KEEL_USER_CODE=`.
+    for line in executor_startup_lines(config):
+        print(line, flush=True)
     _install_heartbeat_shutdown_handlers(config)
 
     if config.script_path and config.executor != "scripted":
@@ -203,6 +295,7 @@ def _run_connect(args) -> int:
         budget_usd=config.job_budget_usd,
         max_turns=config.job_max_turns,
         timeout_seconds=config.job_timeout_seconds,
+        copilot_model=config.copilot_model,
     )
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)
@@ -388,18 +481,11 @@ def _environment_keys(status_config, heartbeat_record) -> dict:
     """
     keys = _address_keys(status_config, heartbeat_record)
 
-    executor = status_config.executor
-    binary = _EXECUTOR_BINARIES.get(executor)
-    if binary is not None:
-        executor_on_path = shutil.which(binary) is not None
-    else:
-        # An in-process executor (`scripted`, `stub`) has no CLI to find and is always available;
-        # reporting `false` for it would read as "broken" on a healthy deterministic run. A name
-        # this runtime does not know is not available at all, and says so.
-        executor_on_path = executor in _IN_PROCESS_EXECUTORS
-
-    keys["executor"] = executor
-    keys["executor_on_path"] = executor_on_path
+    # Both keys reflect the executor the **selection order** resolved (C-10), which since spec
+    # `005-copilot-executor` may be `copilot` -- on a Copilot-hosted machine `executor_on_path`
+    # is then about `copilot`, and reads `true` on a healthy runtime with no `claude` anywhere.
+    keys["executor"] = status_config.executor
+    keys["executor_on_path"] = config_module.executor_on_path(status_config.executor)
     return keys
 
 
