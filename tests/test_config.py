@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 from keel_runtime import config as config_module
 
@@ -71,10 +72,15 @@ class ConfigPrecedenceTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             config_module.load(self._args())
 
-    def test_default_home_is_dot_keel_when_nothing_names_one(self):
-        args = self._args(home=None, base_url="http://flag")
+    def test_the_home_follows_the_address_when_nothing_names_one(self):
+        """Was `test_default_home_is_dot_keel_when_nothing_names_one`, and asserted
+        `~/.keel` for every Keel. Since spec `004-shipped-runtime` (design §6.3) the home is
+        derived from the resolved base URL; `~/.keel` itself survives only for the case where
+        nothing resolves at all, which `tests/test_home_derivation.py` covers.
+        """
+        args = self._args(home=None, base_url="http://localhost:18081")
         config = config_module.load(args)
-        self.assertEqual(config.home, Path.home() / ".keel")
+        self.assertEqual(config.home, Path.home() / ".keel" / "localhost-18081")
 
     def test_executor_defaults_to_claude_code(self):
         config = config_module.load(self._args(base_url="http://flag"))
@@ -207,6 +213,81 @@ class ConfigPrecedenceTest(unittest.TestCase):
         os.environ["KEEL_JOB_TIMEOUT_SECONDS"] = "as long as it takes"
         config = config_module.load(self._args(base_url="http://flag"))
         self.assertEqual(config.job_timeout_seconds, 300.0)
+
+
+
+class CloudDefaultTest(unittest.TestCase):
+    """`CLOUD_BASE_URL` is the last term of the chain (spec `004-shipped-runtime` FR-006,
+    invariant E-2): a flag, `KEEL_BASE_URL` or `$KEEL_HOME/config.json` always outranks it; when
+    it has a value it is used *instead of* exiting; while it is the empty placeholder, behaviour
+    is exactly today's, `SystemExit` and remedy included.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name)
+        self._env_backup = {key: os.environ.get(key) for key in _ENV_KEYS}
+        for key in _ENV_KEYS:
+            os.environ.pop(key, None)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        for key, value in self._env_backup.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def _args(self, **overrides):
+        base = dict(
+            base_url=None,
+            executor=None,
+            home=str(self.home),
+            credential_backend=None,
+            no_browser=False,
+            script=None,
+            context_keys=None,
+        )
+        base.update(overrides)
+        return Namespace(**base)
+
+    def test_an_empty_constant_keeps_todays_exit_and_its_remedy(self):
+        self.assertEqual(config_module.CLOUD_BASE_URL, "")
+        with self.assertRaises(SystemExit) as raised:
+            config_module.load(self._args())
+        message = str(raised.exception)
+        self.assertIn("--base-url", message)
+        self.assertIn("KEEL_BASE_URL", message)
+        self.assertIn("config.json", message)
+
+    def test_a_constant_with_a_value_is_used_instead_of_exiting(self):
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", "https://cloud.keel.example"):
+            config = config_module.load(self._args())
+            self.assertEqual(config.base_url, "https://cloud.keel.example")
+            self.assertEqual(config.environment, "cloud")
+
+    def test_a_flag_outranks_the_constant(self):
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", "https://cloud.keel.example"):
+            config = config_module.load(self._args(base_url="http://localhost:18081"))
+            self.assertEqual(config.base_url, "http://localhost:18081")
+            self.assertEqual(config.environment, "localhost:18081")
+
+    def test_the_environment_variable_outranks_the_constant(self):
+        os.environ["KEEL_BASE_URL"] = "http://localhost:18081"
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", "https://cloud.keel.example"):
+            config = config_module.load(self._args())
+            self.assertEqual(config.base_url, "http://localhost:18081")
+
+    def test_the_file_config_outranks_the_constant(self):
+        (self.home / "config.json").write_text(json.dumps({"base_url": "http://localhost:18081"}))
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", "https://cloud.keel.example"):
+            config = config_module.load(self._args())
+            self.assertEqual(config.base_url, "http://localhost:18081")
+
+    def test_environment_is_null_when_nothing_resolves(self):
+        status = config_module.load_status_config(self._args())
+        self.assertIsNone(status.base_url)
+        self.assertIsNone(status.environment)
 
 
 if __name__ == "__main__":

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import signal
 import sys
 
+from . import COPYRIGHT, LICENSE_URL, __license__, __version__
 from . import agent_session as agent_session_module
 from . import auth as auth_module
 from . import config as config_module
@@ -22,8 +24,68 @@ from .executor import get_executor
 from .poller import run_loop
 
 
+# Which CLI a named executor needs on `PATH`, for `status`'s `executor_on_path` (spec
+# 004-shipped-runtime FR-009, design C-10). `scripted` and `stub` run in this process and are
+# always available, so they are absent here and report `true`. Spec `005-copilot-executor` adds
+# `copilot` when the executor it names exists; `claude_on_path` is never built, because it reads
+# `false` on a healthy runtime that is not using Claude, which is a lie about health.
+_EXECUTOR_BINARIES = {"claude-code": "claude"}
+_IN_PROCESS_EXECUTORS = frozenset({"scripted", "stub"})
+
+
+def version_line() -> str:
+    """One line, and the whole of `--version` (FR-005). It names `CLOUD_BASE_URL` once that
+    constant has a value -- design §13 step 8, whose entire edit is that string.
+    """
+    line = f"keel-runtime {__version__}"
+    if config_module.CLOUD_BASE_URL:
+        line += f" (Keel Cloud {config_module.CLOUD_BASE_URL})"
+    return line
+
+
+def license_text() -> str:
+    return (
+        f"keel-runtime {__version__}\n"
+        f"{COPYRIGHT}\n"
+        f"Licensed under the Apache License, Version 2.0 (SPDX: {__license__}); "
+        f"the full text is at {LICENSE_URL}\n"
+        "This runtime bundles no third-party code: it runs on the Python standard library alone. "
+        "`keyring` and `jsonschema` are optional accelerators, used only if you install them "
+        "yourself."
+    )
+
+
+class _PrintAndExit(argparse.Action):
+    """A `--version`-style flag: print one thing, exit 0, ask for no subcommand.
+
+    argparse runs an optional's action as it consumes the argument, so this fires before the
+    `required=True` subparser check at the end of `parse_args` -- which is what lets
+    `python3 -m keel_runtime --version` work with no command at all (§10.3 assertion 3).
+    """
+
+    def __init__(self, option_strings, dest, text=None, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS, **kwargs)
+        self._text = text
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(self._text() if callable(self._text) else self._text)
+        parser.exit(0)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="keel", description="Keel local runtime")
+    parser.add_argument(
+        "--version",
+        action=_PrintAndExit,
+        text=version_line,
+        help="print this runtime's version and exit",
+    )
+    parser.add_argument(
+        "--license",
+        action=_PrintAndExit,
+        text=license_text,
+        help="print this runtime's licence notice and exit",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     connect = subparsers.add_parser(
@@ -93,6 +155,13 @@ def main(argv=None) -> int:
 def _run_connect(args) -> int:
     config = config_module.load(args)
     config.home.mkdir(parents=True, exist_ok=True)
+    # The first line of the log the skill is already reading, in the same machine-readable family
+    # as `KEEL_USER_CODE=` (spec 004-shipped-runtime FR-010, design §6.3): which Keel this is, and
+    # its address. The skill carries no address of its own (X-5) and reports what it is handed.
+    print(
+        f"KEEL_ENVIRONMENT={config.environment} base_url={config.base_url}",
+        flush=True,
+    )
     _install_heartbeat_shutdown_handlers(config)
 
     if config.script_path and config.executor != "scripted":
@@ -189,8 +258,41 @@ def _run_status(args) -> int:
             "connected": True,
         }
 
+    result.update(_environment_keys(status_config, hb))
     print(json.dumps(result))
     return 0
+
+
+def _environment_keys(status_config, heartbeat_record) -> dict:
+    """`home`, `base_url`, `environment`, `executor`, `executor_on_path` -- the four keys spec
+    004-shipped-runtime FR-009 adds and the promotion of `base_url` to always-present. Every one
+    of them is in **both** shapes (design C-10), which is why this is one helper and not two
+    branches.
+
+    In the running shape the address is the *heartbeat's*: it describes the Keel the live process
+    actually connected to, which is not necessarily the one a fresh resolution would pick now.
+    """
+    base_url = status_config.base_url
+    if heartbeat_record is not None and getattr(heartbeat_record, "base_url", None):
+        base_url = heartbeat_record.base_url
+
+    executor = status_config.executor
+    binary = _EXECUTOR_BINARIES.get(executor)
+    if binary is not None:
+        executor_on_path = shutil.which(binary) is not None
+    else:
+        # An in-process executor (`scripted`, `stub`) has no CLI to find and is always available;
+        # reporting `false` for it would read as "broken" on a healthy deterministic run. A name
+        # this runtime does not know is not available at all, and says so.
+        executor_on_path = executor in _IN_PROCESS_EXECUTORS
+
+    return {
+        "home": str(status_config.home),
+        "base_url": base_url,
+        "environment": config_module.environment_for(base_url),
+        "executor": executor,
+        "executor_on_path": executor_on_path,
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover -- exercised via __main__.py instead

@@ -1,6 +1,14 @@
-"""Tests for keel_runtime.response_validator (mirrors spec FR-019)."""
-import unittest
+"""Tests for keel_runtime.response_validator (mirrors spec FR-019).
 
+`StdlibValidatorIsLoadBearingTest` at the foot of this file is spec `004-shipped-runtime`'s
+FR-003: `jsonschema` is an optional accelerator nobody installs (design §4.4, R-2), so the subset
+validator is the *shipped* validator and is driven here directly rather than being reached by
+accident on a machine that happens not to have the package.
+"""
+import unittest
+from unittest import mock
+
+from keel_runtime import response_validator
 from keel_runtime.response_validator import InvalidResponse, validate_response
 
 # The exact contract SC-002 uses for the echo job.
@@ -174,6 +182,91 @@ class ResponseValidatorTest(unittest.TestCase):
         with self.assertRaises(InvalidResponse):
             validate_response(
                 {"outcome": "COMPLETED", "result": {"statement": "too long"}}, contract
+            )
+
+
+
+class StdlibValidatorIsLoadBearingTest(unittest.TestCase):
+    """spec 004-shipped-runtime FR-003 / invariant R-2. The stdlib subset validator is what runs
+    on a founder's machine, so it is asserted to be what runs -- with `_JSONSCHEMA_AVAILABLE`
+    forced to `False` whatever this interpreter happens to have installed.
+    """
+
+    CONTRACT = {
+        "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+        "completed_result_schema": {
+            "type": "object",
+            "required": ["statement", "findings"],
+            "properties": {
+                "statement": {"type": "string", "maxLength": 20, "minLength": 2},
+                "findings": {
+                    "type": "array",
+                    "maxItems": 2,
+                    "items": {"type": "string", "pattern": r"^(?!.*(https?://|www\.))"},
+                },
+                "verdict": {"enum": ["SUPPORTED", "CONTRADICTED"]},
+            },
+            "additionalProperties": False,
+        },
+    }
+
+    def _validate(self, response):
+        with mock.patch.object(response_validator, "_JSONSCHEMA_AVAILABLE", False):
+            validate_response(response, self.CONTRACT)
+
+    def test_the_shipped_path_accepts_a_conforming_result(self):
+        self._validate(
+            {
+                "outcome": "COMPLETED",
+                "result": {
+                    "statement": "it holds",
+                    "findings": ["one", "two"],
+                    "verdict": "SUPPORTED",
+                },
+            }
+        )
+
+    def test_the_shipped_path_refuses_every_keyword_the_server_enforces(self):
+        cases = {
+            "maxLength": {"statement": "x" * 21, "findings": []},
+            "minLength": {"statement": "x", "findings": []},
+            "required": {"findings": []},
+            "type": {"statement": 3, "findings": []},
+            "maxItems": {"statement": "ok", "findings": ["a", "b", "c"]},
+            "pattern": {"statement": "ok", "findings": ["see https://example.com"]},
+            "enum": {"statement": "ok", "findings": [], "verdict": "MAYBE"},
+            "additionalProperties": {"statement": "ok", "findings": [], "extra": 1},
+        }
+        for keyword, result in cases.items():
+            with self.subTest(keyword=keyword):
+                with self.assertRaises(InvalidResponse):
+                    self._validate({"outcome": "COMPLETED", "result": result})
+
+    def test_the_subset_validator_is_the_function_that_gets_called(self):
+        """Not merely "the answer was right": the stdlib path is the one taken."""
+        with mock.patch.object(response_validator, "_JSONSCHEMA_AVAILABLE", False):
+            with mock.patch.object(
+                response_validator, "_subset_validate", wraps=response_validator._subset_validate
+            ) as spy:
+                validate_response(
+                    {
+                        "outcome": "COMPLETED",
+                        "result": {"statement": "it holds", "findings": []},
+                    },
+                    self.CONTRACT,
+                )
+        self.assertTrue(spy.called)
+
+    def test_no_test_in_this_module_needs_jsonschema(self):
+        """R-2: "no test may assume either is present"."""
+        self.assertIn(
+            response_validator._JSONSCHEMA_AVAILABLE,
+            (True, False),
+        )
+        with mock.patch.object(response_validator, "_JSONSCHEMA_AVAILABLE", False):
+            validate_response(
+                {"outcome": "COMPLETED", "result": {"statement": "it holds", "findings": []}},
+                self.CONTRACT,
             )
 
 

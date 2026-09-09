@@ -7,6 +7,14 @@ long-polls for inference jobs, executes them, and reports the answer back.
 The runtime owns no workflow, project, instruction, memory, or schema state — it is a
 stateless executor of whatever `request_payload` Cloud queues for it.
 
+**Python 3.9 or newer is the only thing it needs.** It ships *inside* Keel's skill (design of
+record: keel-cloud `canon/designs/keel-skill-design.md`, spec
+[`004-shipped-runtime`](specs/004-shipped-runtime/spec.md)), so it is run by whatever interpreter
+ran the skill's own script — on a Mac with the Xcode command-line tools that is `/usr/bin/python3`
+at 3.9.6, which is why 3.9 is the floor. `.github/workflows/tests.yml` runs the whole suite on
+3.9–3.13 and **installs neither `keyring` nor `jsonschema`**, because the shipped behaviour is the
+one without them and that is the configuration worth testing.
+
 ## Running it
 
 Uninstalled, straight from this directory (this is how the E2E test launches it, and it
@@ -35,11 +43,21 @@ network call, and prints a single line of JSON:
 
 ```sh
 python3 -m keel_runtime status
-# {"running": false}
-# or, with a live runtime:
-# {"running": true, "pid": 41213, "agent_session_id": "...", "base_url": "...",
-#  "last_heartbeat_at": "...", "connected": true}
+# {"running": false, "home": "/Users/you/.keel/localhost-18081",
+#  "base_url": "http://localhost:18081", "environment": "localhost:18081",
+#  "executor": "claude-code", "executor_on_path": true}
+# or, with a live runtime, the same five keys plus:
+# {"running": true, "pid": 41213, "agent_session_id": "...", "last_heartbeat_at": "...",
+#  "connected": true, ...}
 ```
+
+`home`, `environment`, `executor` and `executor_on_path` are present in **both** shapes, and
+`base_url` is always present (spec `004-shipped-runtime` FR-009). `environment` is *which Keel*:
+`"cloud"` for the built-in default, `host:port` for anything else, `null` when nothing names a Keel
+at all. In the running shape the address is the one the **live process** connected to (the
+heartbeat's own record), not what a fresh resolution would pick now. `executor_on_path` is whether
+that executor's CLI is on `PATH`; `scripted` and `stub` run in this process and are always
+available.
 
 This exists so something outside the runtime process (in practice: a Claude Code skill
 in another repository, deciding whether to launch `keel connect`) can check liveness
@@ -51,6 +69,17 @@ the heartbeat file's own schema is an implementation detail, not part of that co
 
 `--home` (same `KEEL_HOME`-resolution precedence as `connect`) is the only flag
 `status` accepts.
+
+## Saying which runtime this is
+
+```sh
+python3 -m keel_runtime --version    # keel-runtime 0.1.0
+python3 -m keel_runtime --license    # the SPDX id, the copyright line and the full text's URL
+```
+
+Neither needs a subcommand and both exit 0. `keel_runtime.__version__` is the single source of
+truth — the shipped runtime is run from a directory on `PYTHONPATH` and never installed, so package
+metadata would not answer — and a test asserts `pyproject.toml` agrees with it.
 
 ### `connect` flags
 
@@ -65,6 +94,15 @@ the heartbeat file's own schema is an implementation detail, not part of that co
 | `--no-browser` | do not open a browser during device authorization; print the URL instead |
 | `--log-level` | log verbosity (informational only in this pass) |
 
+`connect`'s **first line of output** names the Keel it is talking to, in the same machine-readable
+family as the two device-authorization lines a harness already parses:
+
+```
+KEEL_ENVIRONMENT=localhost:18081 base_url=http://localhost:18081
+KEEL_USER_CODE=WDJB-MJHT
+KEEL_VERIFICATION_URI=http://localhost:5173/connect?code=WDJB-MJHT
+```
+
 ## Configuration precedence
 
 For each key, the first source that sets it wins: **CLI flag > environment variable >
@@ -72,7 +110,7 @@ For each key, the first source that sets it wins: **CLI flag > environment varia
 
 | Key | Flag | Env var | Config file key |
 |---|---|---|---|
-| Base URL | `--base-url` | `KEEL_BASE_URL` | `base_url` |
+| Base URL | `--base-url` | `KEEL_BASE_URL` | `base_url` — then the built-in `CLOUD_BASE_URL`, below |
 | Executor | `--executor` | `KEEL_EXECUTOR` | `executor` |
 | Home directory | `--home` | `KEEL_HOME` | — |
 | Credential backend | `--credential-backend` | `KEEL_CREDENTIAL_BACKEND` | `credential_backend` |
@@ -83,8 +121,35 @@ For each key, the first source that sets it wins: **CLI flag > environment varia
 | Per-job max turns (`claude-code` executor only) | — | `KEEL_JOB_MAX_TURNS` | `max_turns` |
 | Per-job wall clock, seconds (`claude-code` executor only) | — | `KEEL_JOB_TIMEOUT_SECONDS` | `job_timeout_seconds` |
 
-`KEEL_HOME` defaults to `~/.keel` if nothing sets it. A missing `base_url` after all
-three sources are checked exits with a one-line remedy rather than a traceback.
+### The home follows the address
+
+`KEEL_HOME` is now an **override, not a requirement**. With neither `--home` nor `KEEL_HOME` set,
+the home is `~/.keel/<host-slug>/`, derived from the *resolved* base URL: the host lowercased,
+joined to the port with `-` when the URL states one, every character outside `[a-z0-9.-]` replaced
+with `-`, no scheme and no path. So `http://localhost:18081` → `~/.keel/localhost-18081/`, and a
+runtime pointed at another Keel reads a different directory and finds no credential there (design
+§6.3, invariant E-1: two Keels never share one). `bin` is reserved for Keel's own use, so a host
+that would slug to it gets `bin-keel` instead.
+
+The resolution is two-phase, because the home decides where the config file is and the config file
+may name the base URL:
+
+1. `--home`/`KEEL_HOME` set → that directory, and its `config.json` takes part in the base-URL
+   chain as it always has;
+2. else a base URL from `--base-url`/`KEEL_BASE_URL`/`CLOUD_BASE_URL` → `~/.keel/<slug>/`, whose
+   `config.json` supplies every key **except** `base_url` — a derived home's file may not rename
+   the Keel that named it;
+3. else nothing resolved → `~/.keel`, whose `config.json` may still name a `base_url`.
+
+### The built-in cloud default
+
+`config.py`'s `CLOUD_BASE_URL` is the **last** term of the base-URL chain, so a fresh install
+reaches the real Keel with no configuration at all, and any flag, environment variable or config
+file still outranks it. **It is empty today, deliberately**: keel-cloud's own deployment has no
+hostname yet, and filling that constant in is step 8 of the design's implementation order. While it
+is empty, a missing `base_url` after every source is checked exits with a one-line remedy rather
+than a traceback, exactly as before — and `keel status` still answers, still exits 0, with
+`environment: null`.
 
 `heartbeat_stale_after` controls how long `status` will still report `running: true`
 for a live-but-unrefreshed heartbeat before treating it as dead (env or
@@ -222,7 +287,15 @@ never required:
 ## Tests
 
 ```sh
-python3 -m unittest discover -s tests -t .
+python3 -m unittest discover -s tests -t .   # stdlib only
+python -m pytest -q                          # what CI runs
 ```
 
 wired into the Java build's `check` task as `keelRuntimeTest` (spec SC-001).
+
+The only test-only dependencies are `pytest` and `PyYAML` (the latter for
+`tools/generate_bundled_script.py`, which reads keel-cloud's golden corpus); both are declared as
+the `dev` extra, `pip install -e ".[dev]"`. **Neither `keyring` nor `jsonschema` is ever installed
+in CI**, and every row of the matrix asserts they are absent before running the suite: the
+`0600` credential file and the stdlib subset validator are what founders run, so they are what is
+tested (invariants R-1 and R-2).
