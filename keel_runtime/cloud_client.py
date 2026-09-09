@@ -12,6 +12,7 @@ connection refused, timeout) raises `NetworkError`.
 from __future__ import annotations
 
 import json
+import socket
 import urllib.error
 import urllib.request
 from typing import Optional
@@ -98,6 +99,33 @@ class CloudClient:
             access_token=access_token,
         )
 
+    def end_agent_session(
+        self,
+        agent_session_id: str,
+        access_token: str,
+        timeout: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        """The goodbye (keel-cloud spec `033-agent-session-goodbye`; `003-keel-disconnect`
+        design §4.2, §4.3): `POST /v2/agent-sessions/{id}/disconnect`, body `{}`, expecting
+        `204 No Content` -- the runtime's own last act on a clean shutdown, called once with
+        this session's own bearer and a short, caller-supplied timeout.
+
+        This is `create_agent_session`'s counterpart, not a variant of `poll`/`complete_job`/
+        `fail_job`: it carries no response to interpret, only a refusal to raise if one comes
+        back. A `404 AGENT_SESSION_NOT_FOUND` (an older Keel Cloud, or a session this bearer
+        does not own) and a `403 INSUFFICIENT_SCOPE` both surface as the same `ApiError` every
+        other call raises; a network error, a connection refused, or the timeout expiring
+        surfaces as `NetworkError`. **This method swallows nothing itself** -- `cli._say_goodbye`
+        is the one seam that does (G1), and it is the one that supplies the bound.
+        """
+        self._request(
+            "POST",
+            f"/v2/agent-sessions/{agent_session_id}/disconnect",
+            body={},
+            access_token=access_token,
+            timeout=timeout,
+        )
+
     # -- transport ---------------------------------------------------------------------
 
     def _request(
@@ -129,7 +157,14 @@ class CloudClient:
             raise ApiError(status, code, message) from exc
         except urllib.error.URLError as exc:
             raise NetworkError(str(exc.reason)) from exc
-        except TimeoutError as exc:
+        except (socket.timeout, TimeoutError) as exc:
+            # A timeout reading the response (rather than connecting) reaches here unwrapped --
+            # `http.client.HTTPConnection.getresponse()` raises it directly, not through
+            # `URLError`. On Python 3.9 `socket.timeout` is its own class, not `TimeoutError`
+            # (they are the same class from 3.10 on); listing both keeps this one clause correct
+            # on every supported interpreter, which is what makes a hung server's `NetworkError`
+            # -- not a bare, unswallowed `socket.timeout` -- a promise `end_agent_session` can
+            # make on 3.9 too.
             raise NetworkError(str(exc)) from exc
 
     @staticmethod
