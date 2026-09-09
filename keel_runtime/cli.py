@@ -17,6 +17,7 @@ from . import COPYRIGHT, LICENSE_URL, __license__, __version__
 from . import agent_session as agent_session_module
 from . import auth as auth_module
 from . import config as config_module
+from . import disconnect as disconnect_module
 from . import heartbeat as heartbeat_module
 from .cloud_client import AuthenticationExpired, CloudClient
 from .credential_store import CredentialStore
@@ -136,6 +137,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status.add_argument("--home", dest="home", help="overrides KEEL_HOME for this run")
 
+    disconnect = subparsers.add_parser(
+        "disconnect",
+        help="stop the keel-runtime process running on this home (spec 003-keel-disconnect)",
+    )
+    disconnect.add_argument("--home", dest="home", help="overrides KEEL_HOME for this run")
+    # Since spec `004-shipped-runtime` the home **follows the address**, so naming the Keel is a
+    # way of naming the home: a caller that knows which Keel it means should not have to compute a
+    # host slug to say which directory it means. It is never used to reach the network (D9).
+    disconnect.add_argument(
+        "--base-url",
+        dest="base_url",
+        help="the Keel whose derived home to act on, when no --home/KEEL_HOME is set",
+    )
+
     return parser
 
 
@@ -147,6 +162,8 @@ def main(argv=None) -> int:
         return _run_connect(args)
     if args.command == "status":
         return _run_status(args)
+    if args.command == "disconnect":
+        return _run_disconnect(args)
 
     parser.print_help()  # pragma: no cover -- argparse's `required=True` makes this dead
     return 1
@@ -263,6 +280,43 @@ def _run_status(args) -> int:
     return 0
 
 
+def _run_disconnect(args) -> int:
+    """spec `003-keel-disconnect` FR-001/FR-005/FR-008: one line of JSON on stdout, exit 0 always,
+    no network call (contracts/disconnect-cli-output.md).
+
+    The wiring is four lines because the flow is `disconnect.py`'s: read the heartbeat once for
+    the address it records, run the flow, and say what happened and which Keel it happened to.
+    """
+    status_config = config_module.load_status_config(args)
+    # Read before the flow runs, because a `stopped` run removes the file the address comes from.
+    hb = heartbeat_module.read(status_config.home)
+
+    result = disconnect_module.disconnect(status_config.home)
+    result.update(_address_keys(status_config, hb))
+    print(json.dumps(result))
+    return 0
+
+
+def _address_keys(status_config, heartbeat_record) -> dict:
+    """`home`, `base_url`, `environment` -- *which home, and which Keel* (spec 004 FR-009, spec 003
+    FR-008). One helper, so exactly one place decides the address for both `status` and
+    `disconnect`.
+
+    When a heartbeat was readable the address is the *heartbeat's*: it describes the Keel the live
+    (or just-stopped) process actually connected to, which is not necessarily the one a fresh
+    resolution would pick now.
+    """
+    base_url = status_config.base_url
+    if heartbeat_record is not None and getattr(heartbeat_record, "base_url", None):
+        base_url = heartbeat_record.base_url
+
+    return {
+        "home": str(status_config.home),
+        "base_url": base_url,
+        "environment": config_module.environment_for(base_url),
+    }
+
+
 def _environment_keys(status_config, heartbeat_record) -> dict:
     """`home`, `base_url`, `environment`, `executor`, `executor_on_path` -- the four keys spec
     004-shipped-runtime FR-009 adds and the promotion of `base_url` to always-present. Every one
@@ -271,10 +325,10 @@ def _environment_keys(status_config, heartbeat_record) -> dict:
 
     In the running shape the address is the *heartbeat's*: it describes the Keel the live process
     actually connected to, which is not necessarily the one a fresh resolution would pick now.
+    That part is `_address_keys`, shared with `disconnect`; the two executor keys are `status`'s
+    alone, since no executor takes part in a disconnect.
     """
-    base_url = status_config.base_url
-    if heartbeat_record is not None and getattr(heartbeat_record, "base_url", None):
-        base_url = heartbeat_record.base_url
+    keys = _address_keys(status_config, heartbeat_record)
 
     executor = status_config.executor
     binary = _EXECUTOR_BINARIES.get(executor)
@@ -286,13 +340,9 @@ def _environment_keys(status_config, heartbeat_record) -> dict:
         # this runtime does not know is not available at all, and says so.
         executor_on_path = executor in _IN_PROCESS_EXECUTORS
 
-    return {
-        "home": str(status_config.home),
-        "base_url": base_url,
-        "environment": config_module.environment_for(base_url),
-        "executor": executor,
-        "executor_on_path": executor_on_path,
-    }
+    keys["executor"] = executor
+    keys["executor_on_path"] = executor_on_path
+    return keys
 
 
 if __name__ == "__main__":  # pragma: no cover -- exercised via __main__.py instead
