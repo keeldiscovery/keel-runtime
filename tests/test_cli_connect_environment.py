@@ -66,8 +66,62 @@ class ConnectStartupLineTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stdout.startswith("KEEL_ENVIRONMENT="))
 
-    def test_no_base_url_anywhere_still_exits_with_the_one_line_remedy(self):
-        result = _run_connect(self.home)
+    def test_no_base_url_anywhere_reaches_the_cloud_default(self):
+        """`CLOUD_BASE_URL` is a real address since design §13 step 8, so `--home` alone, with no
+        `config.json` and no `KEEL_BASE_URL`, now resolves to it rather than exiting. The constant
+        is pinned here to a closed port rather than the real cloud address -- same as the two
+        tests above -- so this stays a hermetic, fast, deterministic failure rather than a real
+        network call to production; `tests/test_home_derivation.py` and `tests/test_config.py`
+        prove the real value resolves the same way, without a subprocess.
+        """
+        script = (
+            "import sys\n"
+            "from keel_runtime import config as config_module\n"
+            "config_module.CLOUD_BASE_URL = 'http://127.0.0.1:1'\n"
+            "from keel_runtime.cli import main\n"
+            "sys.exit(main(['connect', '--home', sys.argv[1], '--executor', 'stub', "
+            "'--no-browser']))\n"
+        )
+        env = {k: v for k, v in os.environ.items() if not k.startswith("KEEL_")}
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(self.home)],
+            cwd=str(_RUNTIME_DIR),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        lines = result.stdout.splitlines()
+        self.assertTrue(lines, msg=f"connect printed nothing; stderr: {result.stderr}")
+        self.assertEqual(
+            lines[0],
+            "KEEL_ENVIRONMENT=cloud base_url=http://127.0.0.1:1",
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_the_one_line_remedy_survives_for_whenever_the_cloud_default_is_unset(self):
+        """The exit-with-remedy path (design §13 step 1) is unreachable through a real subprocess
+        now that `CLOUD_BASE_URL` has a value -- it is exercised the same way the in-process tests
+        exercise it, by clearing the constant, but still through a real subprocess so the message
+        text stays proven end to end.
+        """
+        script = (
+            "import sys\n"
+            "from keel_runtime import config as config_module\n"
+            "config_module.CLOUD_BASE_URL = ''\n"
+            "from keel_runtime.cli import main\n"
+            "sys.exit(main(['connect', '--home', sys.argv[1], '--executor', 'stub', "
+            "'--no-browser']))\n"
+        )
+        env = {k: v for k, v in os.environ.items() if not k.startswith("KEEL_")}
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(self.home)],
+            cwd=str(_RUNTIME_DIR),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("no base URL configured", result.stderr)
         self.assertEqual(result.stdout, "")

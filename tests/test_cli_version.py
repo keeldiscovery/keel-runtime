@@ -43,7 +43,10 @@ class VersionFlagTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         lines = result.stdout.splitlines()
         self.assertEqual(len(lines), 1, msg=repr(result.stdout))
-        self.assertEqual(lines[0], f"keel-runtime {keel_runtime.__version__}")
+        self.assertEqual(
+            lines[0],
+            f"keel-runtime {keel_runtime.__version__} (Keel Cloud https://app.keeldiscovery.com)",
+        )
 
     def test_the_version_is_a_semver_looking_string(self):
         self.assertRegex(keel_runtime.__version__, r"^\d+\.\d+\.\d+")
@@ -58,8 +61,10 @@ class VersionFlagTest(unittest.TestCase):
         self.assertIsNotNone(declared, msg="pyproject.toml has no top-level version")
         self.assertEqual(declared.group(1), keel_runtime.__version__)
 
-    def test_version_names_the_cloud_default_once_that_constant_has_a_value(self):
-        """Design §13 step 8's whole edit is the constant; this is what it will then print."""
+    def test_version_names_whatever_the_constant_is_set_to(self):
+        """Design §13 step 8's whole edit was the constant; this is what it prints, for any value
+        the constant holds -- proven here with a value distinct from today's real one.
+        """
         original = config_module.CLOUD_BASE_URL
         try:
             config_module.CLOUD_BASE_URL = "https://cloud.keel.example"
@@ -70,13 +75,13 @@ class VersionFlagTest(unittest.TestCase):
         finally:
             config_module.CLOUD_BASE_URL = original
 
-    def test_the_placeholder_constant_is_still_empty_and_says_which_step_fills_it(self):
-        """The constant ships empty until step 8 (design §13 step 1: "with an empty value, so
-        behaviour is today's"), and the comment beside it names that step.
+    def test_the_constant_is_set_to_the_real_keel_cloud_address(self):
+        """Since design §13 step 8 (spec 034, live 2026-09-09), the constant is no longer the
+        empty placeholder -- it names keel-cloud's real, deployed address.
         """
-        self.assertEqual(config_module.CLOUD_BASE_URL, "")
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
         source = (_RUNTIME_DIR / "keel_runtime" / "config.py").read_text(encoding="utf-8")
-        self.assertIn('CLOUD_BASE_URL = ""', source)
+        self.assertIn('CLOUD_BASE_URL = "https://app.keeldiscovery.com"', source)
         self.assertIn("step 8", source)
 
 

@@ -454,6 +454,10 @@ class CliDisconnectTest(unittest.TestCase):
         return json.loads(lines[0])
 
     def test_an_empty_home_is_one_json_line_of_not_running_and_exit_zero(self):
+        """`--home` is explicit here and its `config.json` is absent, so `base_url` still
+        resolves -- to `CLOUD_BASE_URL`, the chain's last term (design §13 step 8) -- rather than
+        landing on `None`.
+        """
         payload = self._payload(
             _run("disconnect", "--home", str(self.home), fake_home=self.fake_home)
         )
@@ -461,8 +465,8 @@ class CliDisconnectTest(unittest.TestCase):
         for key in ("outcome", "home", "base_url", "environment"):
             self.assertIn(key, payload)
         self.assertEqual(payload["home"], str(self.home))
-        self.assertIsNone(payload["base_url"])
-        self.assertIsNone(payload["environment"])
+        self.assertEqual(payload["base_url"], "https://app.keeldiscovery.com")
+        self.assertEqual(payload["environment"], "cloud")
         # `status`'s two executor keys are deliberately absent: no executor takes part in a
         # disconnect (FR-008).
         self.assertNotIn("executor", payload)

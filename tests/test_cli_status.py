@@ -61,6 +61,9 @@ class CliStatusTest(unittest.TestCase):
         return json.loads(lines[0])
 
     def test_no_heartbeat_file_reports_not_running(self):
+        """`--home` is explicit and its `config.json` is absent, so `base_url` still resolves --
+        to `CLOUD_BASE_URL`, the chain's last term (design §13 step 8) -- rather than `None`.
+        """
         result = _run_status(self.home)
         payload = self._assert_single_json_line(result)
         self.assertEqual(
@@ -68,8 +71,8 @@ class CliStatusTest(unittest.TestCase):
             {
                 "running": False,
                 "home": str(self.home),
-                "base_url": None,
-                "environment": None,
+                "base_url": "https://app.keeldiscovery.com",
+                "environment": "cloud",
                 "executor": "claude",
                 "executor_on_path": payload["executor_on_path"],
             },
@@ -154,8 +157,9 @@ class CliStatusTest(unittest.TestCase):
 
 class StatusEnvironmentKeysTest(unittest.TestCase):
     """spec 004-shipped-runtime FR-009: the four added keys and the always-present `base_url`,
-    in both shapes, and `status` still answering with exit 0 when nothing names a Keel at all
-    (R-4, design §6.3's "the home falls back to today's `~/.keel` and `environment` is null").
+    in both shapes, and `status` still answering with exit 0 when nothing names a Keel at all.
+    Since design §13 step 8, `CLOUD_BASE_URL` is a real address, so "nothing configured" now
+    resolves to it rather than to the null environment §6.3 describes for the placeholder era.
     """
 
     def setUp(self):
@@ -172,12 +176,12 @@ class StatusEnvironmentKeysTest(unittest.TestCase):
         self.assertEqual(len(lines), 1, msg=f"expected exactly one line, got: {result.stdout!r}")
         return json.loads(lines[0])
 
-    def test_nothing_configured_at_all_still_answers_with_a_null_environment(self):
+    def test_nothing_configured_at_all_reaches_the_cloud_default(self):
         payload = self._payload()
         self.assertEqual(payload["running"], False)
-        self.assertIsNone(payload["base_url"])
-        self.assertIsNone(payload["environment"])
-        self.assertEqual(payload["home"], str(self.fake_home / ".keel"))
+        self.assertEqual(payload["base_url"], "https://app.keeldiscovery.com")
+        self.assertEqual(payload["environment"], "cloud")
+        self.assertEqual(payload["home"], str(self.fake_home / ".keel" / "app.keeldiscovery.com"))
 
     def test_a_local_base_url_names_its_address_and_derives_its_home(self):
         payload = self._payload(KEEL_BASE_URL="http://localhost:18081")

@@ -68,9 +68,15 @@ class ConfigPrecedenceTest(unittest.TestCase):
         config = config_module.load(self._args())
         self.assertEqual(config.base_url, "http://file")
 
-    def test_missing_base_url_exits(self):
-        with self.assertRaises(SystemExit):
-            config_module.load(self._args())
+    def test_missing_base_url_exits_when_the_cloud_default_is_unset(self):
+        """`CLOUD_BASE_URL` has a real value since design §13 step 8, so a source tree with
+        `--home` set and nothing else configured now reaches the cloud default rather than
+        exiting. The exit remedy survives for whenever the constant is cleared -- exercised
+        directly here, the same way `CloudDefaultTest` does.
+        """
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
+            with self.assertRaises(SystemExit):
+                config_module.load(self._args())
 
     def test_the_home_follows_the_address_when_nothing_names_one(self):
         """Was `test_default_home_is_dot_keel_when_nothing_names_one`, and asserted
@@ -225,9 +231,11 @@ class ConfigPrecedenceTest(unittest.TestCase):
 
 class CloudDefaultTest(unittest.TestCase):
     """`CLOUD_BASE_URL` is the last term of the chain (spec `004-shipped-runtime` FR-006,
-    invariant E-2): a flag, `KEEL_BASE_URL` or `$KEEL_HOME/config.json` always outranks it; when
-    it has a value it is used *instead of* exiting; while it is the empty placeholder, behaviour
-    is exactly today's, `SystemExit` and remedy included.
+    invariant E-2): a flag, `KEEL_BASE_URL` or `$KEEL_HOME/config.json` always outranks it. Since
+    design §13 step 8 it names keel-cloud's real address, so it is used *instead of* exiting for a
+    fresh install with nothing else configured; the old empty-placeholder behaviour -- `SystemExit`
+    and its remedy -- survives only for whenever the constant is cleared, and is exercised that way
+    below.
     """
 
     def setUp(self):
@@ -258,14 +266,23 @@ class CloudDefaultTest(unittest.TestCase):
         base.update(overrides)
         return Namespace(**base)
 
+    def test_the_constant_is_set_to_the_real_cloud_address(self):
+        """§13 step 8: keel-cloud is deployed and this is its address."""
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
+
     def test_an_empty_constant_keeps_todays_exit_and_its_remedy(self):
-        self.assertEqual(config_module.CLOUD_BASE_URL, "")
-        with self.assertRaises(SystemExit) as raised:
-            config_module.load(self._args())
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
+            with self.assertRaises(SystemExit) as raised:
+                config_module.load(self._args())
         message = str(raised.exception)
         self.assertIn("--base-url", message)
         self.assertIn("KEEL_BASE_URL", message)
         self.assertIn("config.json", message)
+
+    def test_the_real_constant_is_used_instead_of_exiting(self):
+        config = config_module.load(self._args())
+        self.assertEqual(config.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(config.environment, "cloud")
 
     def test_a_constant_with_a_value_is_used_instead_of_exiting(self):
         with mock.patch.object(config_module, "CLOUD_BASE_URL", "https://cloud.keel.example"):
@@ -292,9 +309,15 @@ class CloudDefaultTest(unittest.TestCase):
             self.assertEqual(config.base_url, "http://localhost:18081")
 
     def test_environment_is_null_when_nothing_resolves(self):
-        status = config_module.load_status_config(self._args())
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
+            status = config_module.load_status_config(self._args())
         self.assertIsNone(status.base_url)
         self.assertIsNone(status.environment)
+
+    def test_status_reaches_the_cloud_default_when_nothing_else_resolves(self):
+        status = config_module.load_status_config(self._args())
+        self.assertEqual(status.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(status.environment, "cloud")
 
 
 if __name__ == "__main__":
