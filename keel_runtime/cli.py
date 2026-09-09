@@ -227,10 +227,68 @@ def _run_connect(args) -> int:
     print("Polling for work. Press Ctrl+C to stop.")
 
     try:
-        run_loop(client, state, executor, store, config)
+        # FR-011: `run_loop` rebinds `state` when a credential expires mid-run (`_reauthorize`),
+        # so the state to say goodbye with is the one it *finished* with, not the one it started
+        # with. It returns None only if it never entered the loop.
+        final_state = run_loop(client, state, executor, store, config)
+        if final_state is not None:
+            state = final_state
     except KeyboardInterrupt:
         pass
+
+    try:
+        _say_goodbye(client, state, config)
+    except KeyboardInterrupt:
+        # A second Ctrl+C/SIGTERM while the goodbye is in flight is still a clean exit (G1).
+        pass
     return 0
+
+
+# One call, a two-second timeout, no retry, no backoff -- the opposite of the poll loop, which
+# retries forever because it has forever (G2).
+GOODBYE_TIMEOUT_SECONDS = 2.0
+
+
+def _say_goodbye(client, state, config) -> bool:
+    """The runtime's last act, and the **seam** spec 003's second pass fills (FR-010; design §4.2,
+    invariants G1-G3, G6). Returns whether a goodbye was attempted.
+
+    **Today it is a no-op**, deliberately and tested as one: `CloudClient` has no
+    `end_agent_session`, because keel-cloud has no `POST /v2/agent-sessions/{id}/disconnect` to
+    call yet (keel-cloud spec `033-agent-session-goodbye`, design §10 step 3). The second pass adds
+    that one client method and this call site starts working with no edit of its own.
+
+    **Where it is, and where it must not be.** Not in the signal handler: that runs on the main
+    thread's own stack, wherever that thread happens to be -- nine times in ten inside the
+    long-poll's `urlopen` -- and opening a second socket from inside the first one's stack frame,
+    in a handler that may be re-entered by a second SIGTERM, is the kind of code that works until
+    the day it does not. The handler keeps doing exactly what spec 021 FR-003 gave it, and the
+    goodbye goes here, after the stack has unwound. That placement also gets the ordering right
+    for free (G3): the heartbeat is already gone, so a founder who runs `keel status` half a second
+    later reads "not running" whether or not the network cooperated. **Local truth first, always.**
+
+    **Best-effort.** Every exception is swallowed: a refused call, a 404 from an older Keel Cloud,
+    a laptop already off the wifi. None of them delays the exit, changes the exit code, or changes
+    `keel disconnect`'s outcome (G1). The goodbye is an accelerator, never a requirement (G5) --
+    when it does not arrive, keel-cloud's existing staleness rule turns the founder's screen off
+    exactly as it does today.
+    """
+    if state is None or not getattr(state, "agent_session_id", None):
+        return False  # G6 -- a run interrupted during device authorization has nothing to end.
+
+    end_agent_session = getattr(client, "end_agent_session", None)
+    if end_agent_session is None:
+        return False  # no endpoint in this runtime's client yet -- the second pass adds it.
+
+    try:
+        end_agent_session(
+            state.agent_session_id,
+            state.access_token,
+            timeout=GOODBYE_TIMEOUT_SECONDS,
+        )
+    except Exception:  # noqa: BLE001 -- G1: everything, without exception, is swallowed here.
+        pass
+    return True
 
 
 def _install_heartbeat_shutdown_handlers(config) -> None:

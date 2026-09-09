@@ -49,7 +49,13 @@ JOB_DIR_RETENTION = 50
 _FAIL_MESSAGE_DETAIL_LIMIT = 200
 
 
-def run_loop(client: CloudClient, state, executor: Executor, store, config) -> None:
+def run_loop(client: CloudClient, state, executor: Executor, store, config):
+    """Returns the `RuntimeState` it finished with (spec `003-keel-disconnect` FR-011).
+
+    `_reauthorize` rebinds `state` when a credential expires mid-run, so the caller's own local
+    variable can name an agent session that is already dead -- which is the session the goodbye
+    would otherwise be addressed to. One `return` is the whole fix.
+    """
     _prune_job_dirs(config.home)
     backoff = INITIAL_BACKOFF_SECONDS
     try:
@@ -70,7 +76,7 @@ def run_loop(client: CloudClient, state, executor: Executor, store, config) -> N
                 backoff = min(backoff * 2, MAX_BACKOFF_SECONDS)
                 continue
     except KeyboardInterrupt:
-        return
+        return state
 
 
 def _prune_job_dirs(home, keep: int = JOB_DIR_RETENTION) -> None:
