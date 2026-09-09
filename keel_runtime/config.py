@@ -28,16 +28,14 @@ from .cloud_client import DEFAULT_POLL_WINDOW_SECONDS, POLL_TIMEOUT_MARGIN_SECON
 DEFAULT_HOME = Path.home() / ".keel"
 
 # The address a founder reaches with no configuration of any kind (design §6.2, decision 12).
-# **This value is a placeholder and is deliberately empty.** keel-cloud's own AWS deployment has
-# no hostname yet, so there is nothing true to put here; filling this constant in is the whole of
-# **step 8** of the design's implementation order, and nothing else in this repository changes when
-# it lands. Until then behaviour is exactly today's: `connect` exits with its one-line remedy when
-# no other source supplies a base URL, and `status` answers with a null environment.
+# **Set as of design §13 step 8** (spec 034, live 2026-09-09): keel-cloud is deployed at
+# https://app.keeldiscovery.com and `/v2/setup` answers 200. A fresh install with nothing
+# configured now reaches that Keel rather than exiting.
 #
 # It is the **last** term of the chain and never outranks `--base-url`, `KEEL_BASE_URL` or
-# `$KEEL_HOME/config.json` (E-2). When it does have a value it is used *instead of* exiting -- that
+# `$KEEL_HOME/config.json` (E-2). Because it has a value it is used *instead of* exiting -- that
 # is what makes cloud the default a fresh install reaches with zero configuration.
-CLOUD_BASE_URL = ""
+CLOUD_BASE_URL = "https://app.keeldiscovery.com"
 
 # `~/.keel/bin/` is Keel's own. A Keel whose host would slug to a reserved name gets a different
 # directory, so `ls ~/.keel/` shows host slugs and nothing else (design §10.4).
@@ -572,8 +570,8 @@ def load(args) -> RuntimeConfig:
     home, file_config, base_url = _resolve_home_and_base_url(args)
 
     if not base_url:
-        # Reachable only while `CLOUD_BASE_URL` is still the empty placeholder (E-2): a source
-        # tree before step 8, with nothing else configured. The remedy is the one it always was.
+        # `CLOUD_BASE_URL` now has a value (§13 step 8), so this is reachable only when a caller
+        # or test has cleared the constant back to empty. The remedy is the one it always was.
         raise SystemExit(
             "keel connect: no base URL configured -- pass --base-url, set "
             f"{ENV_BASE_URL}, or add \"base_url\" to {home / 'config.json'}"

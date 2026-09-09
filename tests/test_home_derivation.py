@@ -73,6 +73,14 @@ class HostSlugTest(unittest.TestCase):
             self.assertEqual(config_module.host_slug("https://cloud.keel.example"),
                              "cloud.keel.example")
 
+    def test_the_real_cloud_default_slugs_to_app_keeldiscovery_com(self):
+        """Since design §13 step 8: no mocking, the constant's real value."""
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
+        self.assertEqual(config_module.environment_for(config_module.CLOUD_BASE_URL), "cloud")
+        self.assertEqual(
+            config_module.host_slug(config_module.CLOUD_BASE_URL), "app.keeldiscovery.com"
+        )
+
     def test_none_is_not_an_address(self):
         self.assertIsNone(config_module.host_slug(None))
         self.assertIsNone(config_module.environment_for(None))
@@ -148,18 +156,35 @@ class DerivedHomeTest(unittest.TestCase):
         resolved = config_module.load_status_config(self._args())
         self.assertEqual(resolved.home, override)
 
-    def test_nothing_resolves_at_all_and_the_home_is_todays_root(self):
+    def test_nothing_resolves_at_all_reaches_the_cloud_default(self):
+        """Since design §13 step 8, `CLOUD_BASE_URL` is a real address and phase 2 resolves to it
+        before phase 3 is ever reached -- so "nothing configured" now derives a home under it
+        rather than falling back to `~/.keel` itself.
+        """
         resolved = config_module.load_status_config(self._args())
+        self.assertEqual(resolved.home, self.fake_home / ".keel" / "app.keeldiscovery.com")
+        self.assertEqual(resolved.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(resolved.environment, "cloud")
+
+    def test_nothing_resolves_at_all_and_the_home_is_todays_root_when_the_default_is_unset(self):
+        """Phase 3 of FR-007, exercised the way it now can be: with `CLOUD_BASE_URL` cleared, as
+        it shipped before design §13 step 8.
+        """
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
+            resolved = config_module.load_status_config(self._args())
         self.assertEqual(resolved.home, self.fake_home / ".keel")
         self.assertIsNone(resolved.base_url)
         self.assertIsNone(resolved.environment)
 
     def test_the_root_config_file_may_still_name_a_base_url_when_nothing_else_does(self):
-        """Phase 3 of FR-007: today's one working branch, unchanged."""
+        """Phase 3 of FR-007: today's one working branch, reachable now only with the cloud
+        default cleared -- real installs resolve `CLOUD_BASE_URL` before this file is consulted.
+        """
         root = self.fake_home / ".keel"
         root.mkdir(parents=True)
         (root / "config.json").write_text(json.dumps({"base_url": "http://localhost:18081"}))
-        resolved = config_module.load_status_config(self._args())
+        with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
+            resolved = config_module.load_status_config(self._args())
         self.assertEqual(resolved.home, root)
         self.assertEqual(resolved.base_url, "http://localhost:18081")
         self.assertEqual(resolved.environment, "localhost:18081")

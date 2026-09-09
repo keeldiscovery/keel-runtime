@@ -66,11 +66,18 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 - [x] T016 Gate green on 3.9 and on 3.13 (SC-001, SC-002); commits in the house style with the
       trailers; merge to `master` and push (the founder asked for it tonight).
 
+## Phase 6: The address, for real
+
+- [x] T017 §13 step 8 — keel-cloud deployed at `https://app.keeldiscovery.com` (spec 034, live
+      2026-09-09; `/v2/setup` answers 200): `keel_runtime/config.py`'s `CLOUD_BASE_URL` given that
+      value; every test that pinned the placeholder updated (the empty-constant behaviour,
+      `--version`'s output, the slug `app.keeldiscovery.com`, `environment` = `cloud` for that
+      host); `README.md` and this file updated; `python -m keel_runtime status` and `connect` run
+      for real with no environment configured (the latter stopped before approval, no credential
+      left behind); `python -m pytest` green on 3.9 and 3.13 (366).
+
 ## Open items (not this spec's)
 
-- **`CLOUD_BASE_URL`'s real value** — §13 step 8, blocked on keel-cloud's and keel-web's AWS
-  deployment design. The constant, its comment and the test that proves a set constant is used
-  instead of exiting are all here; only the string is missing.
 - **A `LICENSE` file** — `--license` names Apache-2.0, the identifier the design's own Spec Kit
   manifest declares for the tree that carries this runtime (§8.4). No sibling repository holds a
   licence file today. Adding the text is the founder's call.

@@ -34,8 +34,8 @@ from .poller import run_loop
 
 
 def version_line() -> str:
-    """One line, and the whole of `--version` (FR-005). It names `CLOUD_BASE_URL` once that
-    constant has a value -- design §13 step 8, whose entire edit is that string.
+    """One line, and the whole of `--version` (FR-005). It names `CLOUD_BASE_URL`, set since
+    design §13 step 8 to keel-cloud's real address.
     """
     line = f"keel-runtime {__version__}"
     if config_module.CLOUD_BASE_URL:
