@@ -38,15 +38,15 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 
 ## Phase 3: The address
 
-- [ ] T008 `keel_runtime/config.py`: `CLOUD_BASE_URL` with a placeholder empty value and the
+- [x] T008 `keel_runtime/config.py`: `CLOUD_BASE_URL` with a placeholder empty value and the
       comment naming §13 step 8; last term of the chain; the `SystemExit` kept for an empty
       constant (FR-006, E-2).
-- [ ] T009 `keel_runtime/config.py`: `host_slug`, `derive_home`, `environment_for`, the reserved
+- [x] T009 `keel_runtime/config.py`: `host_slug`, `derive_home`, `environment_for`, the reserved
       `bin`, and the two-phase home resolution of FR-007 (§6.3, E-1).
-- [ ] T010 `tests/test_home_derivation.py`: the table of URLs to slugs, the reserved name, the
+- [x] T010 `tests/test_home_derivation.py`: the table of URLs to slugs, the reserved name, the
       overrides, the `~/.keel` fallback, and two base URLs from one `$HOME` never sharing a home
       (FR-007, FR-008, FR-011, E-1).
-- [ ] T011 `tests/test_config.py`: `CLOUD_BASE_URL` set and empty, the chain's order around it, and
+- [x] T011 `tests/test_config.py`: `CLOUD_BASE_URL` set and empty, the chain's order around it, and
       `environment` for each flavour (FR-006, FR-008).
 
 ## Phase 4: The report

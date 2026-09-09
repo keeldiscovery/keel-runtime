@@ -1,19 +1,52 @@
 """Runtime configuration: precedence CLI flags > env vars > $KEEL_HOME/config.json.
 
-Standard library only (spec FR-025). `KEEL_HOME` (env, default `~/.keel`) decides where
-the file-backed config and, later, the credential store live -- it is resolved first,
-independently of the other keys, since the config file's own location depends on it.
+Standard library only (spec FR-025). The home decides where the file-backed config, the
+credential store and the heartbeat live -- and since spec `004-shipped-runtime` (design
+`keel-skill-design.md` §6.3) **the home follows the address**: with no `KEEL_HOME` and no
+`--home`, it is `~/.keel/<host-slug>/`, derived from the resolved base URL, so a credential
+issued by one Keel is never presented to another (E-1). `KEEL_HOME`/`--home` still win
+outright and are the one way to make two Keels share a home.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional, Tuple
+from urllib.parse import urlsplit
 
 from .cloud_client import DEFAULT_POLL_WINDOW_SECONDS, POLL_TIMEOUT_MARGIN_SECONDS
 
+# The root every derived home hangs under, and the home itself when nothing resolves at all
+# (§6.3: "the home falls back to today's `~/.keel` and `environment` is null"). Kept as a module
+# constant because `executor.py` imports it for its per-job directory fallback; every resolution
+# in this module calls `_default_home_root()` instead, so a test may point `HOME` at a temporary
+# directory and see it.
 DEFAULT_HOME = Path.home() / ".keel"
+
+# The address a founder reaches with no configuration of any kind (design §6.2, decision 12).
+# **This value is a placeholder and is deliberately empty.** keel-cloud's own AWS deployment has
+# no hostname yet, so there is nothing true to put here; filling this constant in is the whole of
+# **step 8** of the design's implementation order, and nothing else in this repository changes when
+# it lands. Until then behaviour is exactly today's: `connect` exits with its one-line remedy when
+# no other source supplies a base URL, and `status` answers with a null environment.
+#
+# It is the **last** term of the chain and never outranks `--base-url`, `KEEL_BASE_URL` or
+# `$KEEL_HOME/config.json` (E-2). When it does have a value it is used *instead of* exiting -- that
+# is what makes cloud the default a fresh install reaches with zero configuration.
+CLOUD_BASE_URL = ""
+
+# `~/.keel/bin/` is Keel's own. A Keel whose host would slug to a reserved name gets a different
+# directory, so `ls ~/.keel/` shows host slugs and nothing else (design §10.4).
+RESERVED_HOME_NAMES = frozenset({"bin"})
+_RESERVED_SUFFIX = "-keel"
+
+# Everything outside this class is replaced with `-` before a slug reaches the filesystem (§6.3).
+_UNSAFE_SLUG_CHARACTERS = re.compile(r"[^a-z0-9.-]")
+
+DEFAULT_EXECUTOR = "claude-code"
 
 # Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
 # KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".
@@ -78,27 +111,166 @@ class RuntimeConfig:
     job_max_turns: int
     job_timeout_seconds: float
 
+    @property
+    def environment(self) -> Optional[str]:
+        """*Which Keel* this run is talking to (§6.3) -- derived, never stored, so it is true of
+        whatever URL actually resolved."""
+        return environment_for(self.base_url)
+
 
 @dataclass
 class StatusConfig:
-    """The lighter-weight resolution `status` needs (contracts/status-cli-output.md):
-    just `home` and the staleness threshold -- no `base_url` requirement, since
-    `status` must answer even when no runtime has ever connected from this
-    `$KEEL_HOME` (spec Acceptance Scenario 1).
+    """The lighter-weight resolution `status` needs (contracts/status-cli-output.md).
+
+    It carries `base_url` and `executor` since spec `004-shipped-runtime` (FR-009), because
+    `status` now reports `base_url`, `environment`, `executor` and `executor_on_path` in both
+    shapes -- but it still has no base-URL *requirement*: `status` must answer, and exit 0, even
+    when no runtime has ever connected from this home and nothing names a Keel at all (spec 021
+    Acceptance Scenario 1, R-4).
     """
 
     home: Path
     heartbeat_stale_after: float
+    base_url: Optional[str] = None
+    executor: str = DEFAULT_EXECUTOR
+
+    @property
+    def environment(self) -> Optional[str]:
+        return environment_for(self.base_url)
 
 
-def _resolve_home(args) -> Path:
-    flag_home = getattr(args, "home", None)
+def _default_home_root() -> Path:
+    """`~/.keel`, resolved now rather than at import time (see DEFAULT_HOME's comment)."""
+    return Path.home() / ".keel"
+
+
+def _split_address(base_url) -> Optional[Tuple[str, Optional[int]]]:
+    """The resolved base URL's `(host, port)`, or `None` when it names no address.
+
+    No scheme, no userinfo, no path (§6.3) -- two base URLs differing only by scheme are one Keel
+    with a misconfiguration, not two. A value with no scheme at all (`localhost:18081`) is read as
+    a bare `host[:port]`, because that is what a human who typed it meant; a value with a scheme
+    and no host (`http://`) names no address and gets `None`.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        return None
+
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+        port = parts.port
+    except ValueError:
+        # An unparseable authority (a malformed port, an unclosed IPv6 bracket) is not fatal
+        # anywhere: resolution falls back to the root home and a null environment.
+        return None
+
+    if host:
+        if not host.strip(".-"):
+            return None  # `.` and `..` are legal hosts to nobody and directory names to no one
+        return host.lower(), port
+
+    if parts.scheme and "//" in value:
+        return None
+
+    bare = value.split("/", 1)[0]
+    if not bare.strip(".-"):
+        return None
+    host_part, separator, port_part = bare.rpartition(":")
+    if separator and port_part.isdigit() and host_part:
+        return host_part.lower(), int(port_part)
+    return bare.lower(), None
+
+
+def host_slug(base_url) -> Optional[str]:
+    """The directory name one Keel gets under `~/.keel/` (§6.3).
+
+    The host lowercased, joined to the port with `-` when the URL states one, every character
+    outside `[a-z0-9.-]` replaced with `-`. `None` when nothing but dots and dashes survives --
+    a slug of `.` or `..` is the one thing this must never hand to the filesystem.
+    """
+    address = _split_address(base_url)
+    if address is None:
+        return None
+    host, port = address
+    raw = host if port is None else "{}-{}".format(host, port)
+    slug = _UNSAFE_SLUG_CHARACTERS.sub("-", raw.lower())
+    if not slug.strip(".-"):
+        return None
+    if slug in RESERVED_HOME_NAMES:
+        return slug + _RESERVED_SUFFIX
+    return slug
+
+
+def derive_home(base_url) -> Optional[Path]:
+    """`~/.keel/<host-slug>/` for a base URL that names an address; `None` otherwise."""
+    slug = host_slug(base_url)
+    if slug is None:
+        return None
+    return _default_home_root() / slug
+
+
+def environment_for(base_url) -> Optional[str]:
+    """*Which Keel*, named by its address (§6.3, §7): `"cloud"` for the built-in default,
+    `host:port` for anything else, `None` when no base URL resolved at all. An address, not a
+    host in the design's sense (D5), and never a named profile -- there is no `KEEL_ENV`.
+    """
+    value = (base_url or "").strip()
+    if not value:
+        return None
+    if CLOUD_BASE_URL and value == CLOUD_BASE_URL.strip():
+        return "cloud"
+    address = _split_address(value)
+    if address is None:
+        return None
+    host, port = address
+    if ":" in host:  # an IPv6 literal keeps its brackets, as it is written in a URL
+        host = "[{}]".format(host)
+    return host if port is None else "{}:{}".format(host, port)
+
+
+def _resolve_home_and_base_url(args) -> Tuple[Path, dict, Optional[str]]:
+    """The home, its file config, and the resolved base URL -- in that order, because the home
+    decides where the file is and the file may name the base URL (spec 004 FR-007).
+
+    Two phases, so that a file can never contradict the directory it sits in:
+
+    1. `--home`/`KEEL_HOME` set -> that home, and its `config.json` takes part in the base-URL
+       chain exactly as it does today;
+    2. else a base URL from `--base-url`/`KEEL_BASE_URL`/`CLOUD_BASE_URL` -> `~/.keel/<slug>/`,
+       whose `config.json` supplies every key **except** `base_url`: a derived home's file may not
+       rename the Keel that named it;
+    3. else nothing resolved -> `~/.keel`, whose `config.json` may still supply `base_url` (today's
+       behaviour, and the only branch that can now reach it).
+
+    Never raises: `status` must answer in every one of these cases (R-4).
+    """
+    flag_home = getattr(args, "home", None) or os.environ.get(ENV_HOME)
     if flag_home:
-        return Path(flag_home).expanduser()
-    env_home = os.environ.get(ENV_HOME)
-    if env_home:
-        return Path(env_home).expanduser()
-    return DEFAULT_HOME
+        home = Path(flag_home).expanduser()
+        file_config = _load_file_config(home)
+        base_url = (
+            getattr(args, "base_url", None)
+            or os.environ.get(ENV_BASE_URL)
+            or file_config.get("base_url")
+            or CLOUD_BASE_URL
+            or None
+        )
+        return home, file_config, base_url
+
+    named_base_url = (
+        getattr(args, "base_url", None)
+        or os.environ.get(ENV_BASE_URL)
+        or CLOUD_BASE_URL
+        or None
+    )
+    if named_base_url:
+        home = derive_home(named_base_url) or _default_home_root()
+        return home, _load_file_config(home), named_base_url
+
+    home = _default_home_root()
+    file_config = _load_file_config(home)
+    return home, file_config, file_config.get("base_url") or None
 
 
 def _load_file_config(home: Path) -> dict:
@@ -209,10 +381,20 @@ def load_status_config(args) -> StatusConfig:
     without `load()`'s `base_url` requirement (`status` must never exit for a missing
     `base_url`; it has no use for one).
     """
-    home = _resolve_home(args)
-    file_config = _load_file_config(home)
+    home, file_config, base_url = _resolve_home_and_base_url(args)
     heartbeat_stale_after = _resolve_heartbeat_stale_after(args, file_config)
-    return StatusConfig(home=home, heartbeat_stale_after=heartbeat_stale_after)
+    executor = (
+        getattr(args, "executor", None)
+        or os.environ.get(ENV_EXECUTOR)
+        or file_config.get("executor")
+        or DEFAULT_EXECUTOR
+    )
+    return StatusConfig(
+        home=home,
+        heartbeat_stale_after=heartbeat_stale_after,
+        base_url=base_url,
+        executor=executor,
+    )
 
 
 def load(args) -> RuntimeConfig:
@@ -220,15 +402,11 @@ def load(args) -> RuntimeConfig:
 
     Exits with a one-line remedy (spec FR-026) when no source supplies `base_url`.
     """
-    home = _resolve_home(args)
-    file_config = _load_file_config(home)
+    home, file_config, base_url = _resolve_home_and_base_url(args)
 
-    base_url = (
-        getattr(args, "base_url", None)
-        or os.environ.get(ENV_BASE_URL)
-        or file_config.get("base_url")
-    )
     if not base_url:
+        # Reachable only while `CLOUD_BASE_URL` is still the empty placeholder (E-2): a source
+        # tree before step 8, with nothing else configured. The remedy is the one it always was.
         raise SystemExit(
             "keel connect: no base URL configured -- pass --base-url, set "
             f"{ENV_BASE_URL}, or add \"base_url\" to {home / 'config.json'}"
@@ -238,7 +416,7 @@ def load(args) -> RuntimeConfig:
         getattr(args, "executor", None)
         or os.environ.get(ENV_EXECUTOR)
         or file_config.get("executor")
-        or "claude-code"
+        or DEFAULT_EXECUTOR
     )
 
     credential_backend = (
