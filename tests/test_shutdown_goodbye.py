@@ -18,6 +18,8 @@ goes and the promises that placement makes:
 * **never when there is nothing to end** (G6) -- a run interrupted during device authorization has
   no agent session.
 """
+import contextlib
+import io
 import signal
 import tempfile
 import unittest
@@ -69,7 +71,9 @@ class SayGoodbyeTest(unittest.TestCase):
     def test_a_client_with_the_goodbye_is_called_once_with_this_session_and_token(self):
         client = _GoodbyeClient()
         self.assertTrue(cli._say_goodbye(client, self.state, self.config))
-        self.assertEqual(client.calls, [("agent-session-1", "token-1", cli.GOODBYE_TIMEOUT_SECONDS)])
+        self.assertEqual(
+            client.calls, [("agent-session-1", "token-1", cli.GOODBYE_TIMEOUT_SECONDS)]
+        )
 
     def test_the_goodbye_is_bounded_to_one_call_with_a_two_second_timeout(self):
         """G2: one call, a 2s timeout, no retry, no backoff -- the opposite of the poll loop."""
@@ -133,15 +137,17 @@ class ConnectSaysGoodbyeTest(unittest.TestCase):
         store = mock.Mock()
         store.load.return_value = credential
 
-        with mock.patch.object(cli.config_module, "load", return_value=self.config), mock.patch.object(
-            cli, "get_executor", return_value=object()
-        ), mock.patch.object(cli, "CredentialStore", return_value=store), mock.patch.object(
-            cli, "CloudClient", return_value=client
-        ), mock.patch.object(
+        with mock.patch.object(
+            cli.config_module, "load", return_value=self.config
+        ), mock.patch.object(cli, "get_executor", return_value=object()), mock.patch.object(
+            cli, "CredentialStore", return_value=store
+        ), mock.patch.object(cli, "CloudClient", return_value=client), mock.patch.object(
             cli.agent_session_module, "create_agent_session", side_effect=_create_agent_session
         ), mock.patch.object(
             cli, "run_loop", side_effect=run_loop
-        ):
+        ), contextlib.redirect_stdout(io.StringIO()):
+            # `connect`'s own two lines of output are not this test's subject, and `unittest`
+            # (unlike pytest) does not capture them.
             return cli._run_connect(mock.Mock())
 
     def test_the_goodbye_is_said_after_the_heartbeat_is_gone(self):

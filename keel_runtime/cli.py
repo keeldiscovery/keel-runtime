@@ -255,8 +255,8 @@ def _say_goodbye(client, state, config) -> bool:
 
     **Today it is a no-op**, deliberately and tested as one: `CloudClient` has no
     `end_agent_session`, because keel-cloud has no `POST /v2/agent-sessions/{id}/disconnect` to
-    call yet (keel-cloud spec `033-agent-session-goodbye`, design §10 step 3). The second pass adds
-    that one client method and this call site starts working with no edit of its own.
+    call yet (keel-cloud spec `033-agent-session-goodbye`, design §10 step 3). The second pass
+    adds that one client method and this call site starts working with no edit of its own.
 
     **Where it is, and where it must not be.** Not in the signal handler: that runs on the main
     thread's own stack, wherever that thread happens to be -- nine times in ten inside the

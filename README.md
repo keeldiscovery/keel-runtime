@@ -31,7 +31,9 @@ Installed (`pip install -e .`), the same command is available as:
 keel connect --base-url http://localhost:8080
 ```
 
-Press Ctrl+C to stop; the runtime exits cleanly.
+Press Ctrl+C to stop; the runtime exits cleanly. From anywhere else -- a script, a hook, or
+a Claude Code session that has no terminal to press Ctrl+C in -- `keel disconnect` does the
+same thing to the runtime this home is running (see "Stopping it again" below).
 
 ## Checking whether a runtime is already connected
 
@@ -69,6 +71,45 @@ the heartbeat file's own schema is an implementation detail, not part of that co
 
 `--home` (same `KEEL_HOME`-resolution precedence as `connect`) is the only flag
 `status` accepts.
+
+## Stopping it again
+
+`disconnect` is the way out, said the same way as the way in (spec `003-keel-disconnect`). It finds
+the runtime **this home** is running from the same heartbeat file, sends the `SIGTERM` that
+process's own shutdown handler already honours -- so it is indistinguishable, to the runtime, from
+the founder pressing Ctrl+C -- waits, **checks that the pid is gone**, and says what happened in
+one line of JSON:
+
+```sh
+python3 -m keel_runtime disconnect
+# {"outcome": "stopped", "pid": 41213, "waited_ms": 84, "signal": "SIGTERM",
+#  "home": "/Users/you/.keel/localhost-18081", "base_url": "http://localhost:18081",
+#  "environment": "localhost:18081"}
+```
+
+Four outcomes, and `outcome` is the whole answer: `stopped` (it was alive, it was signalled, it is
+gone), `not_running` (no readable heartbeat for this home), `stale_pid_cleared` (a heartbeat left
+behind by a runtime that crashed or was killed -- the file is removed and **nothing is signalled**)
+and `timeout` (it survived both signals). A runtime that will not take `SIGTERM` inside **10
+seconds** is sent `SIGKILL` and given **5 more**; 15 seconds is the worst case. On `timeout` the
+heartbeat is deliberately **left in place**, because a process that is still polling must never
+read as not running.
+
+Like `status` it exits **0 always** -- "nothing was running" is a normal answer, and so is "it
+would not die" -- makes **no network call**, and is idempotent: run it twice and the second run is
+`not_running`. It takes `--home` (the same precedence `connect` and `status` use) and `--base-url`,
+which names a Keel and therefore, since the home follows the address, names a home.
+
+**It never touches the credential.** Disconnect stops a process; it does not forget a machine, so
+saying "keel connect" again reconnects with no device code and no browser. The exact output shapes
+and guarantees are the stable contract at
+[`specs/003-keel-disconnect/contracts/disconnect-cli-output.md`](specs/003-keel-disconnect/contracts/disconnect-cli-output.md).
+
+A job in flight is **abandoned** -- no `/complete`, no `/fail`, nothing said -- which is exactly
+what Ctrl+C does today. Whose problem that job then is, and the goodbye that will tell Keel Cloud
+the runtime has gone so the founder's screen stops saying *Agent connected* within seconds rather
+than within ninety, are keel-cloud's side of
+`canon/designs/keel-disconnect-design.md` and are not built yet.
 
 ## Saying which runtime this is
 
