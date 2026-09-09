@@ -2,7 +2,7 @@
 name = "keel-runtime"
 version = "0.1.0"
 description = "Keel's local runtime: authorizes a device against Keel Cloud, long-polls for inference jobs, and executes them locally (spec 020 FR-024..028)."
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 # Core has no required dependencies -- the standard library alone (spec FR-025). Optional
 # accelerators below are used only when importable; the E2E test (spec SC-002) runs this
 # package uninstalled with bare python3, so nothing here may become a hard requirement.
@@ -11,6 +11,12 @@ dependencies = []
 [project.optional-dependencies]
 secure-store = ["keyring"]
 schema = ["jsonschema"]
+# Test-only, and never a runtime import: `tests/test_generate_bundled_script.py` drives
+# `tools/generate_bundled_script.py`, which reads keel-cloud's golden corpus as YAML. Declared so
+# the CI matrix (spec 004-shipped-runtime FR-002) can install the test dependencies by name --
+# and only these. Neither `keyring` nor `jsonschema` is ever installed there: the shipped
+# behaviour is the one without them (design §4.4, R-2), so that is the configuration tested.
+dev = ["pytest", "PyYAML"]
 
 [project.scripts]
 keel = "keel_runtime.cli:main"

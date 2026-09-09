@@ -1,0 +1,78 @@
+# The floor, held (spec `004-shipped-runtime` FR-002; keel-cloud
+# `canon/designs/keel-skill-design.md` §4.2, invariants R-1 and R-2).
+#
+# The runtime ships inside the skill and is run by the interpreter that ran the skill's script, so
+# the only version guarantee that means anything is one this matrix has actually run. 3.9 is the
+# floor because Apple's command-line tools ship 3.9.6; 3.13 is the ceiling anybody has today.
+#
+# **This matrix installs no extra.** `keyring` and `jsonschema` stay optional accelerators
+# (R-2, design decision 4), so the configuration a founder has -- the `0600` credential file and
+# the stdlib subset validator -- is the configuration tested, and the first step of every row
+# asserts both are unimportable rather than trusting the install line above it.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suite:
+    name: py${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        include:
+          # The skill and the runtime must agree about the floor on every platform a founder is
+          # on, and the only way to know is to run both ends of the range there (design §4.2).
+          - os: macos-latest
+            python-version: "3.9"
+          - os: macos-latest
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.9"
+          - os: windows-latest
+            python-version: "3.13"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install the package and the test-only dependencies -- no extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Assert keyring and jsonschema are absent (R-2)
+        shell: python
+        run: |
+          import importlib.util
+          import sys
+
+          present = [
+              name
+              for name in ("keyring", "jsonschema")
+              if importlib.util.find_spec(name) is not None
+          ]
+          if present:
+              sys.exit(
+                  "R-2: %s installed -- this row would test a configuration nobody has" % present
+              )
+          print("absent, as they should be: keyring, jsonschema")
+
+      - name: The suite
+        run: python -m pytest -q
+
+      - name: The two things a founder's machine does first
+        shell: bash
+        run: |
+          python -m keel_runtime --version
+          python -m keel_runtime --license
+          python -m keel_runtime status --home "${RUNNER_TEMP}/keel-status-home"

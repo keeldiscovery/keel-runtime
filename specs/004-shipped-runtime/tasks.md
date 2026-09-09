@@ -11,18 +11,18 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 
 ## Phase 1: The floor
 
-- [ ] T001 `pyproject.toml`: `requires-python = ">=3.9"` (FR-001), and a `dev` extra naming the
+- [x] T001 `pyproject.toml`: `requires-python = ">=3.9"` (FR-001), and a `dev` extra naming the
       test-only dependencies (`pytest`, `PyYAML`) so the matrix installs them by name and nothing
       else.
-- [ ] T002 `.github/workflows/tests.yml`: 3.9-3.13 on `ubuntu-latest`, 3.9 and 3.13 on
+- [x] T002 `.github/workflows/tests.yml`: 3.9-3.13 on `ubuntu-latest`, 3.9 and 3.13 on
       `macos-latest` and `windows-latest`; install the `dev` extra only; **assert `keyring` and
       `jsonschema` are unimportable** before the suite; run the suite, `--version` and a `status`
       against a scratch home (FR-002, R-1, R-2).
-- [ ] T003 `tests/test_no_optional_dependencies.py`: a subprocess whose import hook raises
+- [x] T003 `tests/test_no_optional_dependencies.py`: a subprocess whose import hook raises
       `ImportError` for `keyring` and `jsonschema`, importing every module of the package,
       exercising the `0600` credential file and validating a result through the **stdlib subset
       validator** (FR-003, R-1, R-2).
-- [ ] T004 `tests/test_response_validator.py`: the subset validator driven directly and asserted to
+- [x] T004 `tests/test_response_validator.py`: the subset validator driven directly and asserted to
       be the path `validate_response` takes when `jsonschema` is not importable — load-bearing, not
       incidental (FR-003).
 
