@@ -53,6 +53,17 @@ escalated — in which case `waited_ms` is at least the grace. `waited_ms` is me
 signal, not from process start, so a caller can see the difference between a runtime that stopped
 in 80ms and one that took nine seconds to leave a job.
 
+`stopped` is also what a **zombie** produces (keel-e2e-eval DRIFT #57): a pid that took the
+signal, exited, and was left unreaped by its real parent (an ordinary process, not a reaping PID 1
+— typical inside a container run without `--init`) still answers `os.kill(pid, 0)`, but
+`heartbeat.pid_alive` treats state `Z` as gone, exactly like any other exit — so `stopped` is
+correct and fast (tens of milliseconds) rather than `timeout` at the full 15-second bound. No key
+is added to this shape for it: the fields above are the whole shape, on every occurrence
+(guarantee 1). A founder who wants to know reads stderr, not this JSON — `disconnect` writes one
+diagnostic line there when the just-stopped pid is, at that instant, still a zombie. Reaping it is
+never this command's job either way: it only ever signals a pid it read from the heartbeat, never
+one it forked, so it has no parent's standing to `wait()` on it.
+
 **Not running** (no readable heartbeat for this home — missing file, unreadable file, malformed
 JSON, or JSON short a required field are one answer, exactly as `status` treats the same four
 cases):

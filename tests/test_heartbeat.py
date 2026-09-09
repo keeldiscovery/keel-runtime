@@ -3,7 +3,9 @@ corrupt-file handling, pid liveness, and staleness (data-model.md, research.md ย
 """
 import json
 import os
+import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -90,6 +92,68 @@ class PidAliveTest(unittest.TestCase):
             os._exit(0)
         os.waitpid(pid, 0)
         self.assertFalse(heartbeat.pid_alive(pid))
+
+    @unittest.skipIf(sys.platform == "win32", "os.fork is POSIX-only; no zombie state on Windows")
+    def test_false_for_a_real_zombie(self):
+        """keel-e2e-eval DRIFT #57: a child that has exited but was never `wait()`-ed for is a
+        zombie -- it still answers `os.kill(pid, 0)`, which is exactly what made `pid_alive`
+        wrong before this fix. This test is deliberately its own parent (via `os.fork`, not
+        `Popen`+detach) so it -- not init, not launchd -- is the one that would otherwise reap
+        the child; it holds off on `os.waitpid` until after the assertion, so the pid is
+        observably a zombie at the moment `pid_alive` is asked about it.
+        """
+        pid = os.fork()
+        if pid == 0:  # pragma: no cover -- child process branch
+            os._exit(0)
+        try:
+            # `os._exit` in the child races the parent resuming from `fork()`; retry briefly
+            # rather than asserting on the very first sample, so this isn't flaky under load.
+            # A broken `pid_alive` never turns False on its own, so this always spends the
+            # full deadline and correctly fails, rather than passing by accident.
+            deadline = time.monotonic() + 2.0
+            alive = heartbeat.pid_alive(pid)
+            while alive and time.monotonic() < deadline:
+                time.sleep(0.01)
+                alive = heartbeat.pid_alive(pid)
+            self.assertFalse(alive)
+        finally:
+            os.waitpid(pid, 0)  # reap it -- this test's process is its real parent
+
+
+class ProcStatStateParsingTest(unittest.TestCase):
+    """`heartbeat._parse_proc_stat_state` in isolation -- a pure string parser, so this runs on
+    every platform regardless of whether `/proc` exists here (research.md ยง3; man proc(5) for the
+    format itself).
+    """
+
+    def test_zombie_state_from_a_plain_comm(self):
+        raw = "4123 (python3) Z 1 4123 4123 0 -1 4194560 0 0 0 0 0 0 0 0"
+        self.assertEqual(heartbeat._parse_proc_stat_state(raw), "Z")
+
+    def test_running_state_from_a_plain_comm(self):
+        raw = "99 (sleep) S 1 99 99 0 -1 4194304 0 0 0 0 0 0 0 0"
+        self.assertEqual(heartbeat._parse_proc_stat_state(raw), "S")
+
+    def test_comm_containing_spaces_and_parentheses(self):
+        # A process may rename itself (`prctl(PR_SET_NAME, ...)`/`argv[0]`) to nearly anything,
+        # including something that looks like it ends the comm field early -- the parser has to
+        # split on the LAST ')' in the line, not the first, to get this right.
+        raw = "777 (my worker (renamed) proc) Z 1 777 777 0 -1 4194304 0 0 0 0 0 0 0 0"
+        self.assertEqual(heartbeat._parse_proc_stat_state(raw), "Z")
+
+    def test_missing_closing_paren_is_none(self):
+        self.assertIsNone(heartbeat._parse_proc_stat_state("garbage with no parens at all"))
+
+    def test_closing_paren_with_nothing_after_it_is_none(self):
+        self.assertIsNone(heartbeat._parse_proc_stat_state("4123 (python3)"))
+
+
+class IsZombieTest(unittest.TestCase):
+    def test_false_for_a_pid_very_unlikely_to_exist(self):
+        self.assertFalse(heartbeat.is_zombie(2**30))
+
+    def test_false_for_this_test_process_itself(self):
+        self.assertFalse(heartbeat.is_zombie(os.getpid()))
 
 
 class IsStaleTest(unittest.TestCase):

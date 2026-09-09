@@ -14,11 +14,22 @@ already exists, plus a wait and a proof.
 It imports nothing that can reach a socket (D9), constructs no `CredentialStore` (D7), and knows
 no wire vocabulary at all -- a job in flight is abandoned, never `/fail`ed, because "the AI could
 not answer" is not what happened (D4). The only file it touches is `runtime.heartbeat.json`.
+
+**Zombies (keel-e2e-eval DRIFT #57).** This module never forks or `Popen`s the runtime -- it only
+ever signals a pid it read out of the heartbeat -- so it is never that pid's parent and has no
+standing to `wait()` on it. When a signalled process dies but lands in state `Z` because *its*
+real parent (typically the container's PID 1) never reaps it, `heartbeat.pid_alive` -- fixed for
+exactly this -- already reports it as gone, so the outcome here is `stopped` like any other clean
+exit; there is no fifth outcome and no extra key for it (the contract's own guarantees rule that
+out -- see `contracts/disconnect-cli-output.md`'s "Stopped" shape). `_log_if_zombie` below writes
+one line to stderr, outside the JSON contract, purely so a founder reading a container's log can
+tell a zombie corpse from a real exit; reaping it is permanently someone else's job.
 """
 from __future__ import annotations
 
 import os
 import signal
+import sys
 import time
 from pathlib import Path
 
@@ -72,6 +83,7 @@ def disconnect(
     # and disconnect is the thing that finally cleans it up.
     if not alive(hb.pid):
         heartbeat_module.remove(home)
+        _log_if_zombie(hb.pid)
         return {"outcome": "stale_pid_cleared", "pid": hb.pid}
 
     started_at = clock()
@@ -83,6 +95,7 @@ def disconnect(
     ):
         # 5
         _remove_if_still_ours(home, hb.pid)
+        _log_if_zombie(hb.pid)
         return {
             "outcome": "stopped",
             "pid": hb.pid,
@@ -104,6 +117,7 @@ def disconnect(
         # 7 -- the runtime never got the chance to remove its own heartbeat here, which is exactly
         # what `_remove_if_still_ours` exists for.
         _remove_if_still_ours(home, hb.pid)
+        _log_if_zombie(hb.pid)
         return {
             "outcome": "stopped",
             "pid": hb.pid,
@@ -143,6 +157,27 @@ def _signal_and_wait(pid, signal_number, deadline, *, kill, alive, clock, sleep)
         if clock() >= deadline:
             return True
         sleep(POLL_INTERVAL_SECONDS)
+
+
+def _log_if_zombie(pid: int) -> None:
+    """One line to stderr -- never stdout, which the contract reserves for exactly one line of
+    JSON -- when the pid this disconnect just reported gone is, at this instant, a zombie rather
+    than fully reaped. Purely diagnostic: `pid_alive` already decided `outcome`, this only tells a
+    founder reading a container's log why `ps`/`docker top` may still show the pid for a while.
+    `heartbeat_module.is_zombie` is called directly (not through the injected `alive` seam, which
+    stays a plain bool) and any failure to read the process table here is swallowed -- a logging
+    side-channel must never turn a successful disconnect into an error.
+    """
+    try:
+        if heartbeat_module.is_zombie(pid):
+            print(
+                f"keel-runtime: pid {pid} is gone but still shows as a zombie (state Z) -- "
+                "its parent process, not this command, is responsible for reaping it",
+                file=sys.stderr,
+                flush=True,
+            )
+    except Exception:  # noqa: BLE001 -- a diagnostic line must never fail the disconnect
+        pass
 
 
 def _remove_if_still_ours(home: Path, pid: int) -> None:
