@@ -423,10 +423,25 @@ jobs:
   # this repository holds both acceptance secrets -- it does not today, so this job is skipped and
   # the reason is named in the run's job summary by the job below instead.
   model-driven:
-    name: model-driven half (claude, copilot)
+    name: model-driven half (claude, copilot) on ${{ matrix.os }}
     needs: check-secrets
     if: needs.check-secrets.outputs.have-secrets == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # Per operating system, because the prompt transport is the one thing about these executors
+    # that behaves differently per OS: on Windows both host CLIs resolve to their npm `.cmd`
+    # shim, which the OS dispatches through `cmd.exe`, and `cmd.exe` cuts an argv element at its
+    # first newline. The runtime therefore sends every prompt on the child's stdin (see
+    # `keel_runtime/executor.py`'s `_run_with_prompt_on_stdin`), and the last step below is what
+    # proves that against the real CLI on the real operating system rather than against a fake.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        # Windows runners default to pwsh; every `run:` here is bash, and Git bash is on all
+        # three. Nothing below is OS-specific apart from that choice.
+        shell: bash
     steps:
       - name: Check out keel-runtime (this commit)
         uses: actions/checkout@v4
@@ -479,7 +494,8 @@ jobs:
           KEEL_BASE_URL: http://127.0.0.1:1
         run: |
           claude -p "keel connect" --output-format json \
-            --allowedTools "Skill,Bash(python3:*)" --permission-mode dontAsk | tee claude-reply.json
+            --allowedTools "Skill,Bash(python3:*),Bash(python:*)" \
+            --permission-mode dontAsk | tee claude-reply.json
           echo "--- reply above; a paragraph naming no outcome is red per design §10.3 assertion 4 ---"
 
       # There is no --output-format json for a Copilot prompt reply (design §10.2), so its
@@ -489,8 +505,88 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           KEEL_BASE_URL: http://127.0.0.1:1
         run: |
-          copilot -p "keel connect" --allow-tool 'shell(python3:*)' --no-ask-user -s | tee copilot-reply.txt
+          copilot -p "keel connect" --allow-tool 'shell(python3:*)' \
+            --allow-tool 'shell(python:*)' --no-ask-user -s | tee copilot-reply.txt
           echo "--- reply above; a paragraph naming no outcome is red per design §10.3 assertion 4 ---"
+
+      # The one assertion in this repository that a **multi-line** prompt reaches the model
+      # through `CopilotExecutor` on the operating system it is running on. A three-line prompt
+      # goes through the executor exactly as `poller` would send it -- allow-listed environment,
+      # every tool excluded, the prompt on stdin -- and the model is asked to count the lines it
+      # can see and echo a word that only appears on the last one. An argv-borne prompt on
+      # Windows arrives as its first line only, so this step answers "1 lines" and fails; there
+      # is no other way to tell from the outside, which is exactly why it exists.
+      #
+      # `KEEL_COPILOT_MODEL` pins the model (design C-5: an unpinned run is never silently
+      # measured). It is pinned to a slug rather than left on `auto` for a second reason found on
+      # 2026-09-10: 1.0.83 emits the `phase: "final_answer"` marker `CopilotExecutor` reads on a
+      # `gpt-5.6-luna` reply but *not* on a `claude-sonnet-5` one, so an unpinned run can fail
+      # for a reason that has nothing to do with the transport this step is testing.
+      - name: "A three-line prompt through CopilotExecutor reaches the model whole (${{ matrix.os }})"
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          KEEL_COPILOT_MODEL: gpt-5.6-luna
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+          import tempfile
+
+          sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
+          from keel_runtime.executor import CopilotExecutor, InferenceRequest
+
+          founder_text = "\n".join([
+              "LINE-ONE: we sell refill pouches to corner shops.",
+              "LINE-TWO: ordering is still done over WhatsApp.",
+              "LINE-THREE: the magic word is ZEPPELIN.",
+          ])
+          request = InferenceRequest(
+              job_id="acceptance-multiline",
+              interaction_id="acceptance",
+              turn_number=1,
+              request_payload={
+                  "instruction": (
+                      "Read the source material. Answer with a summary of exactly the form "
+                      "'<N> lines, magic word <WORD>', where N is how many LINE-* lines you can "
+                      "see in it and WORD is the magic word it names."
+                  ),
+                  "context": {},
+                  "interaction_history": [],
+                  "input": {"content": founder_text},
+                  "response_contract": {
+                      "allowed_outcomes": ["COMPLETED", "NEEDS_INPUT"],
+                      "completed_result_schema": {
+                          "type": "object",
+                          "required": ["summary"],
+                          "properties": {"summary": {"type": "string", "maxLength": 400}},
+                      },
+                  },
+              },
+          )
+
+          with tempfile.TemporaryDirectory() as home:
+              executor = CopilotExecutor(
+                  home=home,
+                  timeout_seconds=300.0,
+                  model=os.environ.get("KEEL_COPILOT_MODEL") or None,
+              )
+              answer = executor.execute(request)
+              print("answer:", json.dumps(answer))
+              print("envelope:", json.dumps(executor.last_envelope))
+
+          assert answer["outcome"] == "COMPLETED", "expected COMPLETED: %r" % answer
+          summary = answer["result"]["summary"]
+
+          # All three lines reached the model: it counted three, and the word it echoed is on
+          # the third of them -- unreachable by anything that only received the first.
+          assert "3" in summary, (
+              "the model did not see three lines -- the prompt was truncated on the way to the "
+              "CLI on %s: %r" % (os.environ.get("RUNNER_OS"), summary))
+          assert "ZEPPELIN" in summary.upper(), (
+              "the third line never reached the model on %s: %r"
+              % (os.environ.get("RUNNER_OS"), summary))
+          print("all three lines reached the model on", os.environ.get("RUNNER_OS"), ":", summary)
 
       - name: Job summary
         if: always()
@@ -500,10 +596,13 @@ jobs:
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(
-                  "### model-driven half\n\n"
+                  "### model-driven half (%s)\n\n"
                   "Ran `claude -p \"keel connect\"` and `copilot -p \"keel connect\"` against a "
                   "closed port (`http://127.0.0.1:1`); see the two step logs above for each "
-                  "host's reply. No model calls elsewhere in this workflow.\n\n"
+                  "host's reply. Then sent a three-line prompt through `CopilotExecutor` on "
+                  "this operating system and asserted every line reached the model -- the one "
+                  "check that catches an argv-truncated prompt on Windows.\n\n"
+                  % os.environ["RUNNER_OS"]
               )
 
   model-driven-skipped:

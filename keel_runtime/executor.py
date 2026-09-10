@@ -287,6 +287,61 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
     return env
 
 
+# ---------------------------------------------------------------------------- prompt transport
+#
+# **One rule, both executors: the prompt travels on the child's stdin, and never in argv.**
+#
+# `ClaudeCodeExecutor` has always worked this way -- `claude -p` with no prompt operand reads the
+# prompt from stdin -- and as of this module `CopilotExecutor` does too: measured against GitHub
+# Copilot CLI 1.0.83 on macOS, `copilot -p ""` reads its prompt from stdin, whole and multi-line
+# (see `specs/005-copilot-executor/amendment-prompt-transport.md` for the exact commands and
+# their output). Copilot's argv now carries `-p ""` and nothing else of the prompt.
+#
+# Why it has to be stdin rather than argv. On Windows a real install of either CLI is the npm
+# shim -- `claude.cmd`, `copilot.cmd` -- and launching a `.cmd` is dispatched through `cmd.exe`
+# by the operating system's own loader, `shell=True` or not. `cmd.exe` cannot carry a literal
+# embedded newline through to a child's argv: the argument is cut at the first `\n`. Every prompt
+# this runtime builds is multi-line (`_render_prompt`'s own `"\n".join(...)`), so an argv-borne
+# prompt reaches a Windows founder's Copilot as its **first line only** -- silently, with no
+# error anywhere: the model simply answers a question it was never fully asked. That was
+# `CopilotExecutor`'s shape until this change, and it is why seven tests in
+# `tests/test_copilot_executor.py` were skipped on Windows.
+#
+# stdin is a pipe, not a command line, so it is not parsed by anything: `cmd.exe` never sees the
+# bytes, and the nonce fence and every character of a stranger's answer survive verbatim on every
+# operating system. The prompt is written as **UTF-8 bytes**, not through `text=True`, for two
+# reasons: `text=True` would translate `\n` to `\r\n` on Windows, and it would encode the prompt
+# in the machine's locale encoding (`cp1252` on a stock Windows), which mangles any non-ASCII
+# character a stranger typed. stdout and stderr are decoded back explicitly, same encoding,
+# `errors="replace"` so a stray byte can never raise instead of being reported.
+def _run_with_prompt_on_stdin(argv, prompt, cwd, env, timeout_seconds, binary):
+    """Runs `argv` once with `prompt` on its stdin, returning the `CompletedProcess` with
+    `stdout`/`stderr` already decoded from UTF-8.
+
+    Raises `ExecutorTimeout` / `ExecutorUnavailable` with the same wording both executors used
+    when each had its own copy of this call.
+    """
+    try:
+        completed = subprocess.run(
+            argv,
+            input=prompt.encode("utf-8"),
+            capture_output=True,
+            timeout=timeout_seconds,
+            cwd=str(cwd),
+            env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ExecutorTimeout(
+            f"'{binary}' did not respond within {timeout_seconds}s"
+        ) from exc
+    except OSError as exc:
+        raise ExecutorUnavailable(str(exc)) from exc
+
+    completed.stdout = (completed.stdout or b"").decode("utf-8", "replace")
+    completed.stderr = (completed.stderr or b"").decode("utf-8", "replace")
+    return completed
+
+
 def _reports_not_logged_in(text: str) -> bool:
     return "not logged in" in text.lower()
 
@@ -436,22 +491,14 @@ class ClaudeCodeExecutor(Executor):
         stdout) -- callers fall back on `completed.returncode`/`stderr`, as before.
         """
         argv = self._build_argv(envelope_schema)
-        try:
-            completed = subprocess.run(
-                argv,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds,
-                cwd=str(job_dir),
-                env=_build_env(_CLAUDE_ENV_PREFIXES, _CLAUDE_ENV_EXACT),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ExecutorTimeout(
-                f"'{self.binary}' did not respond within {self.timeout_seconds}s"
-            ) from exc
-        except OSError as exc:
-            raise ExecutorUnavailable(str(exc)) from exc
+        completed = _run_with_prompt_on_stdin(
+            argv,
+            prompt,
+            cwd=job_dir,
+            env=_build_env(_CLAUDE_ENV_PREFIXES, _CLAUDE_ENV_EXACT),
+            timeout_seconds=self.timeout_seconds,
+            binary=self.binary,
+        )
 
         events = _parse_stream_events(completed.stdout)
         result_event = _last_result_event(events)
@@ -609,10 +656,12 @@ COPILOT_EXCLUDED_TOOLS = (
     "write_agent",
 )
 
-# C-2: the prompt is one argv element through a list `subprocess.run`, never a shell string, so
-# the nonce fence and every character of a stranger's answer survive verbatim. Above this guard
-# the executor refuses by name rather than letting the operating system's `ARG_MAX` surface as
-# an `ExecutorUnavailable` nobody can act on.
+# C-2: the prompt is never a shell string, so the nonce fence and every character of a stranger's
+# answer survive verbatim. It is no longer an argv element either -- it goes on the child's stdin
+# (`_run_with_prompt_on_stdin`), which removes `ARG_MAX` and `cmd.exe`'s newline truncation from
+# the picture entirely. The ceiling stays at the same number regardless: a prompt this size is a
+# runaway, and refusing it by name above the guard is a better answer than a five-minute timeout
+# or a model bill nobody meant to run up.
 COPILOT_MAX_PROMPT_BYTES = 512 * 1024
 
 # `--max-ai-credits` is a soft cap and 1.0.83 refuses anything below 30 ("Use at least 30 AI
@@ -835,14 +884,23 @@ class CopilotExecutor(Executor):
         self.last_schema_error: str | None = None
         self._resolved_binary: str | None = None  # set by `execute()`; see `ClaudeCodeExecutor`
 
-    def _build_argv(self, prompt: str, job_dir: Path) -> list:
+    def _build_argv(self, job_dir: Path) -> list:
         """The design's argv, one process per job. Every flag here was accepted by 1.0.83.
 
         No `--json-schema`, no `--system-prompt`, no `--max-turns` and no timeout flag exist on
         this CLI; the first two moved into the prompt (`_render_copilot_prompt`), the last two
         have no equivalent and the timeout is ours.
+
+        **`-p` carries an empty string, not the prompt** -- the prompt goes on stdin, which
+        `copilot -p ""` reads (measured against 1.0.83; see `_run_with_prompt_on_stdin` above
+        for why argv cannot carry it on Windows). `-p` still has to be *there*: it is what puts
+        the CLI in non-interactive mode at all, and the empty operand is what makes it look to
+        stdin for the text. There is no `--prompt-file` on this CLI and no `@file` expansion
+        either -- `-p @path` was measured reaching the model as the literal string `@path`,
+        which a run with tools answered by shelling out to `cat`; with `bash` excluded, as it is
+        here, that path delivers nothing at all.
         """
-        argv = [self._resolved_binary, "-p", prompt]
+        argv = [self._resolved_binary, "-p", ""]
         for tool in COPILOT_EXCLUDED_TOOLS:
             # Variadic in commander, so one flag per name: `--excluded-tools a b c` would eat
             # the flags that follow it.
@@ -869,23 +927,15 @@ class CopilotExecutor(Executor):
         return argv
 
     def _invoke(self, prompt: str, job_dir: Path):
-        argv = self._build_argv(prompt, job_dir)
-        try:
-            completed = subprocess.run(
-                argv,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds,
-                cwd=str(job_dir),
-                env=_build_env(_COPILOT_ENV_PREFIXES, _COPILOT_ENV_EXACT),
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ExecutorTimeout(
-                f"'{self.binary}' did not respond within {self.timeout_seconds}s"
-            ) from exc
-        except OSError as exc:
-            raise ExecutorUnavailable(str(exc)) from exc
-
+        argv = self._build_argv(job_dir)
+        completed = _run_with_prompt_on_stdin(
+            argv,
+            prompt,
+            cwd=job_dir,
+            env=_build_env(_COPILOT_ENV_PREFIXES, _COPILOT_ENV_EXACT),
+            timeout_seconds=self.timeout_seconds,
+            binary=self.binary,
+        )
         return _parse_stream_events(completed.stdout), completed
 
     def _assert_ran(self, events: list, completed) -> None:
@@ -983,11 +1033,11 @@ class CopilotExecutor(Executor):
 
         size = len(prompt.encode("utf-8"))
         if size > COPILOT_MAX_PROMPT_BYTES:
-            # C-2: refuse by name, above the guard, rather than letting `ARG_MAX` surface as an
-            # `ExecutorUnavailable` that reads like a broken CLI.
+            # C-2: refuse by name, above the guard, rather than spending a five-minute timeout
+            # and a model call on a prompt that is plainly a runaway.
             raise InvalidResponse(
-                f"prompt is {size} bytes, above the {COPILOT_MAX_PROMPT_BYTES}-byte limit one "
-                "argv element may carry"
+                f"prompt is {size} bytes, above the {COPILOT_MAX_PROMPT_BYTES}-byte limit this "
+                "executor will send"
             )
 
         job_dir = self.home / "jobs" / request.job_id

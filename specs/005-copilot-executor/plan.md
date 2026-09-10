@@ -56,7 +56,7 @@ cited by id in the code comment, the spec requirement and the test:
 | Invariant | How this plan satisfies it |
 |---|---|
 | **C-1** closed shape per job | `_assert_closed_shape` reads *this job's* `session.usage_checkpoint` and fails on any non-zero `tool_count` — and on a missing checkpoint, because an unverifiable closed shape is not one. A verbatim recording of a run that leaked `apply_patch` is the test. |
-| **C-2** one argv element, 512 KB guard | `subprocess.run` with a list; the guard raises `InvalidResponse` naming the size **before** the process is spawned. |
+| **C-2** the prompt on stdin, 512 KB guard | The prompt is written to the child's stdin as UTF-8 bytes by the shared `_run_with_prompt_on_stdin`, never as an argv element (`copilot -p ""`) and never as a shell string — see [`amendment-prompt-transport.md`](amendment-prompt-transport.md), which supersedes the original "one argv element" wording. The guard raises `InvalidResponse` naming the size **before** the process is spawned. |
 | **C-3** success decided by the JSONL | `_assert_ran` treats any `session.error` as fatal regardless of `returncode`, and the completed path never reads `returncode` at all. |
 | **C-4** per-executor environment | one `_build_env(prefixes, extra_exact)`; two call sites; a test that inspects what a real child actually received. |
 | **C-5** pinned `--model` | `--copilot-model` / `KEEL_COPILOT_MODEL` / `config.json`, applied when set; `model=auto` printed when not, so an unpinned run is never silently measured. **The pin could not be exercised on this machine** — see spec Assumptions. |
