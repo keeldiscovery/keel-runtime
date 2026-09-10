@@ -244,14 +244,17 @@ def _build_envelope_schema(response_contract: dict) -> dict:
 # fixtures included) can die on startup with `Fatal Python error: _Py_HashRandomization_Init:
 # failed to get random numbers to initialize Python`, a well-known Windows gotcha for a
 # subprocess given a hand-built environment, and the actual cause of a whole Windows CI matrix
-# row failing before this was found. `COMSPEC`/`PATHEXT` are a narrower case: resolving
+# row failing before this was found. `COMSPEC`/`PATHEXT`/`PROMPT` are a narrower case: resolving
 # `claude`/`copilot` on Windows finds `claude.cmd`/`copilot.cmd` (the shape an npm install
 # produces, `executor.execute`'s own note on `shutil.which`), and launching a `.cmd` routes
-# through `cmd.exe` at the OS level regardless of what `env=` this module passes -- both reach
-# the child either way (measured), so the allow-list says so rather than pretending otherwise.
+# through `cmd.exe` at the OS level regardless of what `env=` this module passes -- `cmd.exe`
+# itself, once started to interpret the `.cmd`, ensures its own defaults exist (its command
+# prompt string among them) whatever this module handed it, so all three reach the child either
+# way (measured, one at a time, as each in turn was the next one the OS's own `cmd.exe` supplied
+# unasked), and the allow-list says so rather than pretending otherwise.
 _ALLOWED_ENV_EXACT = frozenset(
     {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
-     "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"}
+     "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "PROMPT"}
 )
 
 _CLAUDE_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")

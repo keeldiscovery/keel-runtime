@@ -429,7 +429,7 @@ class ClaudeCodeExecutorTest(_ExecutorTestBase):
         # are spelled all-caps (`os.environ` itself normalises every key to upper case on
         # Windows).
         allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
-                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"}
+                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "PROMPT"}
         # macOS's own process-spawn machinery injects a couple of harmless variables
         # of its own (not something `_build_env` passed, and not a secret) -- excluded
         # here so this test asserts what the executor's own allow-list does, not what

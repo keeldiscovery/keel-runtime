@@ -687,7 +687,7 @@ class TheChildsEnvironmentTest(_FakeCopilotCase):
         # Windows only -- see `_ALLOWED_ENV_EXACT`'s own comment for why each is necessary there
         # (and for why they are spelled all-caps).
         allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
-                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT",
+                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "PROMPT",
                          "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"}
         # macOS's own process-spawn machinery injects a couple of harmless variables of its
         # own; excluded here so this asserts what the allow-list does, not what the OS does.
