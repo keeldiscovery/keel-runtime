@@ -64,10 +64,13 @@ def _fixture(name: str) -> str:
 # fake's recorded **stdin**, not its argv, and no test in this module is platform-conditional.
 
 
-# A fake `copilot`: records each invocation's argv, cwd and environment, then replays one queued
-# response (stdout, stderr, returncode, and an optional `sleep` the timeout test uses). One
+# A fake `copilot`: records each invocation's argv, stdin, cwd and environment, then replays one
+# queued response (stdout, stderr, returncode, and an optional `sleep` the timeout test uses). One
 # queued response is consumed per call and the last repeats, exactly as the fake `claude` in
-# `test_executor.py` does -- so a test that triggers the recovery pass can see both calls.
+# `test_executor.py` does -- so a test that triggers the recovery pass can see both calls. Every
+# stream is UTF-8 explicitly, for the reason spelled out above the fake `claude` in
+# `test_executor.py`: a bare `sys.stdin.read()` decodes with the machine's locale encoding, and
+# `cp1252` on Windows turns the system prompt's own em dash into a replacement character.
 _FAKE_COPILOT_SOURCE = '''#!/usr/bin/env python3
 import json
 import os
@@ -85,7 +88,7 @@ else:
 
 records.append({
     "argv": sys.argv[1:],
-    "stdin": sys.stdin.read(),
+    "stdin": sys.stdin.buffer.read().decode("utf-8"),
     "cwd": os.getcwd(),
     "env": dict(os.environ),
 })
@@ -98,8 +101,8 @@ with open(os.path.join(here, "responses.json")) as handle:
 response = responses[min(len(records) - 1, len(responses) - 1)]
 if response.get("sleep"):
     time.sleep(response["sleep"])
-sys.stdout.write(response.get("stdout", ""))
-sys.stderr.write(response.get("stderr", ""))
+sys.stdout.buffer.write(response.get("stdout", "").encode("utf-8"))
+sys.stderr.buffer.write(response.get("stderr", "").encode("utf-8"))
 sys.exit(response.get("returncode", 0))
 '''
 
@@ -493,9 +496,10 @@ class TheInvocationShapeTest(_FakeCopilotCase):
         line arrived: the whole rendered prompt is recomputed from the executor's own recorded
         sections and compared with what the fake CLI read off stdin, character for character.
 
-        The founder text is forty lines with blank lines, quotes of both kinds, backslashes and
-        a line that looks like a flag -- everything `cmd.exe` or a shell would have opinions
-        about.
+        The founder text is forty lines of blank lines, quotes of both kinds, backslashes,
+        `%PERCENT%`/`$DOLLAR`, lines shaped like flags and shell pipelines, and non-ASCII of
+        several scripts -- everything `cmd.exe`, a shell, or a locale-encoded pipe would have
+        opinions about.
         """
         lines = []
         for index in range(40):
@@ -507,6 +511,10 @@ class TheInvocationShapeTest(_FakeCopilotCase):
                 lines.append(f"line {index}: a back\\slash and a %PERCENT% and a $DOLLAR")
             elif index % 5 == 2:
                 lines.append(f"--not-a-flag-{index} & echo pwned | type con")
+            elif index % 5 == 4:
+                # Non-ASCII on purpose: the transport writes UTF-8 bytes rather than using
+                # `text=True`, whose locale encoding (`cp1252` on Windows) would mangle these.
+                lines.append(f"line {index}: caf\u00e9 \u2014 na\u00efve r\u00e9sum\u00e9s, \u65e5\u672c\u8a9e, \u20ac9.99")
             else:
                 lines.append(f"line {index}: ordinary prose about corner shops")
         content = "\n".join(lines)
