@@ -18,10 +18,12 @@
 #
 # The `model-driven` job is a separate, later addition: an end-to-end walk through the real
 # `claude`/`copilot` host CLIs (still against the same closed port, so no live Keel is needed
-# there either), gated on this repository holding its first two secrets, ANTHROPIC_API_KEY and
-# COPILOT_GITHUB_TOKEN. Nothing in `acceptance` depends on it and nothing that publishes depends
-# on this workflow (a separate workflow, never a `needs:` of anything that publishes -- design
-# T-7).
+# there either), gated per host on this repository holding that host's own secret --
+# ANTHROPIC_API_KEY for Claude, and for Copilot this repository's KEEL_RUNTIME_CI_COPILOT (read
+# as COPILOT_GITHUB_TOKEN, the name the CLI itself reads -- mapped once, in `check-secrets`).
+# Either secret on its own runs that host's steps alone; only when neither exists is the whole
+# half skipped. Nothing in `acceptance` depends on it and nothing that publishes depends on this
+# workflow (a separate workflow, never a `needs:` of anything that publishes -- design T-7).
 name: acceptance
 
 on:
@@ -401,31 +403,42 @@ jobs:
     name: check for acceptance secrets
     runs-on: ubuntu-latest
     outputs:
-      have-secrets: ${{ steps.check.outputs.have-secrets }}
+      copilot: ${{ steps.check.outputs.copilot }}
+      claude: ${{ steps.check.outputs.claude }}
     steps:
       - id: check
         shell: bash
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          # This repository's Copilot token is stored under the name KEEL_RUNTIME_CI_COPILOT,
+          # not COPILOT_GITHUB_TOKEN -- mapped to the CLI's own env name here, the one place
+          # that mapping needs to happen, since every other read of the secret below goes
+          # through this job's `copilot` output rather than reading secrets.* directly again.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_COPILOT }}
         run: |
-          if [[ -n "$ANTHROPIC_API_KEY" && -n "$COPILOT_GITHUB_TOKEN" ]]; then
-            echo "have-secrets=true" >> "$GITHUB_OUTPUT"
+          if [[ -n "$COPILOT_GITHUB_TOKEN" ]]; then
+            echo "copilot=true" >> "$GITHUB_OUTPUT"
           else
-            echo "have-secrets=false" >> "$GITHUB_OUTPUT"
+            echo "copilot=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+            echo "claude=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "claude=false" >> "$GITHUB_OUTPUT"
           fi
 
   # -------------------------------------------------------------------------------- model-driven
   #
   # The model-driven half of B2: the real `claude`/`copilot` host CLIs, still against the same
   # closed port (no live Keel needed here either), each with the skill installed into that host's
-  # personal skill directory the way D1 requires (one source tree, both hosts). Runs only when
-  # this repository holds both acceptance secrets -- it does not today, so this job is skipped and
-  # the reason is named in the run's job summary by the job below instead.
+  # personal skill directory the way D1 requires (one source tree, both hosts). Runs whenever this
+  # repository holds *either* acceptance secret; each host's own steps below are separately gated
+  # on `check-secrets`' per-host output and skipped by name in the job summary when its secret is
+  # absent. Only when neither secret exists is the whole half skipped, by the job below instead.
   model-driven:
     name: model-driven half (claude, copilot) on ${{ matrix.os }}
     needs: check-secrets
-    if: needs.check-secrets.outputs.have-secrets == 'true'
+    if: needs.check-secrets.outputs.copilot == 'true' || needs.check-secrets.outputs.claude == 'true'
     runs-on: ${{ matrix.os }}
     # Per operating system, because the prompt transport is the one thing about these executors
     # that behaves differently per OS: on Windows both host CLIs resolve to their npm `.cmd`
@@ -478,10 +491,22 @@ jobs:
           cp -R "$GITHUB_WORKSPACE/keel-connect-skill" "$HOME/.claude/skills/keel-connect"
           cp -R "$GITHUB_WORKSPACE/keel-connect-skill" "$HOME/.copilot/skills/keel-connect"
 
-      - name: Install both host CLIs from npm, versions printed (T-6)
+      - name: Install the Claude Code CLI from npm, version printed (T-6)
+        if: needs.check-secrets.outputs.claude == 'true'
         run: |
-          npm install -g @anthropic-ai/claude-code @github/copilot
+          npm install -g @anthropic-ai/claude-code
           claude --version
+
+      # Pinned to 1.0.83, the version the design measured (specs/005-copilot-executor
+      # /amendment-prompt-transport.md) -- falls back to latest only if that exact version has
+      # been unpublished from npm. COPILOT_HOME is isolated under the runner's own temp dir so
+      # this run never reads or writes a credential left behind by anything else on the runner.
+      - name: Install the Copilot CLI from npm, pinned to 1.0.83, version printed (T-6)
+        if: needs.check-secrets.outputs.copilot == 'true'
+        env:
+          COPILOT_HOME: ${{ runner.temp }}/copilot-home
+        run: |
+          npm install -g @github/copilot@1.0.83 || npm install -g @github/copilot@latest
           copilot --version
 
       # design §10.2's exact command line. --bare must never be used here (it skips
@@ -489,6 +514,7 @@ jobs:
       # trap, T-2). --permission-mode dontAsk, not --dangerously-skip-permissions, which is
       # refused when the process is root.
       - name: 'claude -p "keel connect" against a closed port'
+        if: needs.check-secrets.outputs.claude == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           KEEL_BASE_URL: http://127.0.0.1:1
@@ -501,8 +527,12 @@ jobs:
       # There is no --output-format json for a Copilot prompt reply (design §10.2), so its
       # outcome is read out of -s's plain text rather than parsed as structured JSON.
       - name: 'copilot -p "keel connect" against a closed port'
+        if: needs.check-secrets.outputs.copilot == 'true'
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          # KEEL_RUNTIME_CI_COPILOT is this repository's actual secret name; mapped to
+          # COPILOT_GITHUB_TOKEN, the env name the CLI itself reads.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_COPILOT }}
+          COPILOT_HOME: ${{ runner.temp }}/copilot-home
           KEEL_BASE_URL: http://127.0.0.1:1
         run: |
           copilot -p "keel connect" --allow-tool 'shell(python3:*)' \
@@ -523,8 +553,12 @@ jobs:
       # `gpt-5.6-luna` reply but *not* on a `claude-sonnet-5` one, so an unpinned run can fail
       # for a reason that has nothing to do with the transport this step is testing.
       - name: "A three-line prompt through CopilotExecutor reaches the model whole (${{ matrix.os }})"
+        if: needs.check-secrets.outputs.copilot == 'true'
         env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          # KEEL_RUNTIME_CI_COPILOT is this repository's actual secret name; mapped to
+          # COPILOT_GITHUB_TOKEN, the env name the CLI itself reads.
+          COPILOT_GITHUB_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_COPILOT }}
+          COPILOT_HOME: ${{ runner.temp }}/copilot-home
           KEEL_COPILOT_MODEL: gpt-5.6-luna
         shell: python
         run: |
@@ -590,25 +624,43 @@ jobs:
 
       - name: Job summary
         if: always()
+        env:
+          HAVE_CLAUDE: ${{ needs.check-secrets.outputs.claude }}
+          HAVE_COPILOT: ${{ needs.check-secrets.outputs.copilot }}
         shell: python
         run: |
           import os
 
+          have_claude = os.environ["HAVE_CLAUDE"] == "true"
+          have_copilot = os.environ["HAVE_COPILOT"] == "true"
+
+          claude_line = (
+              'Ran `claude -p "keel connect"` against a closed port (`http://127.0.0.1:1`); '
+              "see its step log above for the reply."
+              if have_claude else
+              "Skipped `claude -p \"keel connect\"`: ANTHROPIC_API_KEY is not set on this "
+              "repository."
+          )
+          copilot_line = (
+              'Ran `copilot -p "keel connect"` against a closed port, then sent a three-line '
+              "prompt through `CopilotExecutor` on this operating system and asserted every "
+              "line reached the model -- the one check that catches an argv-truncated prompt "
+              "on Windows."
+              if have_copilot else
+              "Skipped the Copilot steps: KEEL_RUNTIME_CI_COPILOT is not set on this "
+              "repository."
+          )
+
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
               handle.write(
-                  "### model-driven half (%s)\n\n"
-                  "Ran `claude -p \"keel connect\"` and `copilot -p \"keel connect\"` against a "
-                  "closed port (`http://127.0.0.1:1`); see the two step logs above for each "
-                  "host's reply. Then sent a three-line prompt through `CopilotExecutor` on "
-                  "this operating system and asserted every line reached the model -- the one "
-                  "check that catches an argv-truncated prompt on Windows.\n\n"
-                  % os.environ["RUNNER_OS"]
+                  "### model-driven half (%s)\n\n%s\n\n%s\n\n"
+                  % (os.environ["RUNNER_OS"], claude_line, copilot_line)
               )
 
   model-driven-skipped:
     name: model-driven half (skipped)
     needs: check-secrets
-    if: needs.check-secrets.outputs.have-secrets != 'true'
+    if: needs.check-secrets.outputs.copilot != 'true' && needs.check-secrets.outputs.claude != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Job summary naming the reason
@@ -617,8 +669,10 @@ jobs:
           {
             echo "### model-driven half: skipped"
             echo ""
-            echo "ANTHROPIC_API_KEY and/or COPILOT_GITHUB_TOKEN are not set on this repository "\
-                 "-- the model-driven half of B2 needs both and is skipped rather than run "\
-                 "without them, per design §10.2's T-5 (no secret is baked in; a missing one "\
-                 "means the job that needs it does not run, not that it runs without it)."
+            echo "Neither ANTHROPIC_API_KEY nor KEEL_RUNTIME_CI_COPILOT (this repository's "\
+                 "Copilot token, read as COPILOT_GITHUB_TOKEN) is set -- the model-driven half "\
+                 "of B2 is skipped rather than run without them, per design §10.2's T-5 (no "\
+                 "secret is baked in; a missing one means the job that needs it does not run, "\
+                 "not that it runs without it). Whichever of the two exists on its own runs the "\
+                 "model-driven job for that host alone -- see its own job summary per OS."
           } >> "$GITHUB_STEP_SUMMARY"
