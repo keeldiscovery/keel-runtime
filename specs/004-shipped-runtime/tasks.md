@@ -78,9 +78,8 @@ neither `keyring` nor `jsonschema` installed, and on the newest interpreter pres
 
 ## Open items (not this spec's)
 
-- **A `LICENSE` file** — `--license` names Apache-2.0, the identifier the design's own Spec Kit
-  manifest declares for the tree that carries this runtime (§8.4). No sibling repository holds a
-  licence file today. Adding the text is the founder's call.
+- ~~A `LICENSE` file~~ — added at the repository root (Apache-2.0 full text, `Copyright 2026 Keel
+  Discovery`); `--license` now says the text ships there too.
 - **keel-cloud's status contract** — `specs/021-keel-runtime-status/contracts/status-cli-output.md`
   is amended for these four keys plus the `base_url` promotion by §13 step 2, which is keel-cloud's
   and was not touched here.

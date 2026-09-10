@@ -261,10 +261,9 @@ report) leans on it.
   under `keel_runtime/` imports it — R-2 is about `keyring` and `jsonschema`, and the assertion in
   the workflow names those two.
 - **The licence is Apache-2.0**, the identifier the design's own Spec Kit manifest declares for the
-  packaging that carries this runtime (§8.4). **This repository holds no `LICENSE` file yet** —
-  neither does any sibling — so `--license` names the identifier and points at the canonical text
-  rather than quoting a file that does not exist. Adding the file is the founder's call and is
-  listed as an open item in `tasks.md`.
+  packaging that carries this runtime (§8.4). A `LICENSE` file now sits at the repository root
+  (full text, `Copyright 2026 Keel Discovery` in the appendix notice), and `--license` names the
+  identifier and says the text ships there as well as at the canonical URL.
 - **keel-cloud's status contract is being amended in parallel** (§13 step 2, another agent's). This
   spec implements the four keys as the *design* names them; if the contract file lands naming them
   differently, the contract wins and this is a follow-on edit.

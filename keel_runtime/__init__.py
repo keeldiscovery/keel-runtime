@@ -8,9 +8,8 @@
 __version__ = "0.1.0"
 
 # The identifier the design's own packaging declares for the tree that carries this runtime
-# (design §8.4's Spec Kit manifest). This repository holds no LICENSE file yet, so `--license`
-# names the identifier and points at the canonical text rather than quoting a file that is not
-# here (spec 004-shipped-runtime, Assumptions).
+# (design §8.4's Spec Kit manifest), and the SPDX id of the `LICENSE` file at the repository
+# root (spec 004-shipped-runtime, Assumptions -- once an open item, closed by adding the file).
 __license__ = "Apache-2.0"
 
 LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
