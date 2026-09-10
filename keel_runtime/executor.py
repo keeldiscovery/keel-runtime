@@ -633,6 +633,13 @@ class ClaudeCodeExecutor(Executor):
 # spec**: a run that dropped `apply_patch` from the list came back `tool_count: 1` with
 # `apply_patch` still available to the model. That is exactly why C-1 makes the closed shape a
 # per-job assertion (`_assert_closed_shape`) rather than a claim this constant makes once.
+#
+# **Measured again 2026-09-10, same CLI 1.0.83, windows-latest (GitHub-hosted CI):** the same
+# session gets `powershell`/`read_powershell`/`stop_powershell`/`list_powershell` instead of
+# `bash`/`read_bash`/`stop_bash`/`list_bash` -- the CLI's shell-tool family is named for the
+# host's own shell, not fixed across operating systems, so this list carries both families
+# rather than branching per platform (a run that only excluded the Unix names came back
+# `tool_count: 4`, all four PowerShell tools still available to the model).
 COPILOT_EXCLUDED_TOOLS = (
     "apply_patch",
     "bash",
@@ -643,13 +650,17 @@ COPILOT_EXCLUDED_TOOLS = (
     "grep",
     "list_agents",
     "list_bash",
+    "list_powershell",
+    "powershell",
     "read_agent",
     "read_bash",
+    "read_powershell",
     "rg",
     "session_store_sql",
     "skill",
     "sql",
     "stop_bash",
+    "stop_powershell",
     "task",
     "view",
     "web_fetch",
