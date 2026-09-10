@@ -192,10 +192,16 @@ unattributable. With it, `source=ambiguous-path` in a log is a complete explanat
   it must never follow: `SYSTEM` carrying the fixed `SYSTEM_PROMPT` verbatim, and `RESPONSE`
   carrying `_build_envelope_schema(response_contract)` as JSON with one instruction. The rendered
   body below them is **byte-identical** to what the Claude path sends.
-- **FR-004** **The prompt is one argv element through a list `subprocess.run`, never a shell
-  string** (C-2), so the nonce fence and every character of a stranger's answer survive. Above a
-  512 KB guard the executor raises `InvalidResponse` **naming the size**, rather than letting
-  `ARG_MAX` surface as an `ExecutorUnavailable` nobody can act on.
+- **FR-004** ~~**The prompt is one argv element through a list `subprocess.run`, never a shell
+  string** (C-2)~~ **superseded 2026-09-10 by
+  [`amendment-prompt-transport.md`](amendment-prompt-transport.md): the prompt is written to the
+  child's **stdin** as UTF-8 bytes and never appears in argv at all** (`copilot -p ""` reads it
+  from there, measured against CLI 1.0.83). An argv element cannot carry a multi-line prompt on
+  Windows, where the CLI is `copilot.cmd` and `cmd.exe` cuts the argument at its first newline.
+  The nonce fence and every character of a stranger's answer survive either way; only stdin
+  survives on all three operating systems. The 512 KB guard is unchanged — the executor raises
+  `InvalidResponse` **naming the size** rather than spending a five-minute timeout and a model
+  call on a prompt that is plainly a runaway.
 - **FR-005** Reading the result back, in order, every step a refusal if it fails: parse stdout as
   JSONL with the existing `_parse_stream_events`; **any `session.error` is a failure whatever the
   exit code says** (C-3); assert this job's own `tool_count` is 0 (C-1) **before the answer is

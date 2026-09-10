@@ -325,7 +325,7 @@ founder and the referee should both see *why*, not only *what*.
   byte, because two hosts sent different prompts measure two different things.
 
   ```
-  copilot -p <the rendered prompt, as one argv element>
+  copilot -p ""                     # empty operand: the rendered prompt is on **stdin**
     --excluded-tools=<name>         # one flag per name, every tool this CLI ships
     --disable-builtin-mcps --no-custom-instructions --no-ask-user
     --no-remote --no-remote-export --no-auto-update --no-color
@@ -334,6 +334,12 @@ founder and the referee should both see *why*, not only *what*.
     -C <job_dir>
     [--model <slug>]                # KEEL_COPILOT_MODEL; unpinned prints model=auto
   ```
+
+  **The prompt goes on stdin on both executors, never in argv** — `claude -p` and `copilot -p ""`
+  each read it from there (measured against Copilot CLI 1.0.83; there is no `--prompt-file` and
+  no `@file` on that CLI). On Windows both CLIs are npm `.cmd` shims dispatched through
+  `cmd.exe`, which cuts an argv element at its first newline, so an argv-borne prompt reached
+  the model as its first line only.
 
   This CLI has **no `--json-schema`, no `--system-prompt`, no turn limit and no timeout flag**. The
   first two move into the prompt text, above TASK and *outside* the KEEL-DATA fence — they are the

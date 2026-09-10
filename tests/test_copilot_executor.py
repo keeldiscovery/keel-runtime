@@ -46,34 +46,31 @@ def _fixture(name: str) -> str:
     return (_FIXTURES / name).read_text(encoding="utf-8")
 
 
-# Discovered running this fixture on Windows CI (not fixed here -- see the PR/commit this
-# constant was added in): `CopilotExecutor` sends the whole rendered prompt as **one argv
-# element** (`_build_argv`: `[binary, "-p", prompt]`), and that prompt is always multi-line
-# (`_render_prompt`'s own `"\n".join(...)`). Resolving `copilot` on Windows finds `copilot.cmd`
-# (the npm-install shape, same as `claude.cmd` -- `executor.execute`'s own note), and launching a
-# `.cmd` is dispatched through `cmd.exe` at the OS level. `cmd.exe` cannot carry a literal
-# embedded newline through to a child's argv -- the argument is cut at the first `\n` before the
-# fake CLI (or a real one) ever sees the rest, observed here as the recorded prompt argv reading
-# just `"SYSTEM"`, the literal first line of `_render_copilot_prompt`'s output. This is a `cmd.exe`
-# platform limit, not something either the fake CLI or `CopilotExecutor`'s own code controls, and
-# it would affect a real `copilot.cmd` on Windows exactly the same way -- a real Windows-side fix
-# (writing the prompt to a file, if the CLI supports reading one, is the likely shape) needs the
-# real CLI to verify against, which this suite does not have. Every test here that asserts on the
-# argv/prompt *content* the fake CLI actually received is skipped on Windows for this reason; tests
-# that only care about the parsed *response* (driven by canned fixtures, not by what was sent)
-# are unaffected and stay unskipped.
-_COPILOT_ARGV_NEWLINE_SKIP = (
-    "cmd.exe cannot carry the multi-line prompt through to a .cmd-dispatched CLI's argv on "
-    "Windows (see this module's own note above the constant of the same name) -- a real "
-    "copilot.cmd would truncate it identically; this is a discovered, unresolved Windows "
-    "limitation of CopilotExecutor's argv-based prompt delivery, not a test-fixture artifact"
-)
+# **The prompt goes on stdin, so every assertion below runs on Windows too.**
+#
+# Seven of these tests used to be skipped on Windows. `CopilotExecutor` sent the whole rendered
+# prompt as one argv element (`_build_argv`: `[binary, "-p", prompt]`), and that prompt is always
+# multi-line (`_render_prompt`'s own `"\n".join(...)`). Resolving `copilot` on Windows finds
+# `copilot.cmd` (the npm-install shape), launching a `.cmd` is dispatched through `cmd.exe` by
+# the OS loader, and `cmd.exe` cuts an argument at the first `\n` -- the fake CLI recorded a
+# prompt argv reading just `"SYSTEM"`, the literal first line of `_render_copilot_prompt`'s
+# output. A real `copilot.cmd` truncates it identically, so a Windows founder's model silently
+# answered a one-line version of the question.
+#
+# `-p` now carries an empty string and the prompt is written to the child's stdin, which
+# `copilot -p ""` reads (measured against CLI 1.0.83 -- see
+# `specs/005-copilot-executor/amendment-prompt-transport.md`). stdin is a pipe, so `cmd.exe`
+# never parses it and there is nothing left to truncate; `_prompt_of` below therefore reads the
+# fake's recorded **stdin**, not its argv, and no test in this module is platform-conditional.
 
 
-# A fake `copilot`: records each invocation's argv, cwd and environment, then replays one queued
-# response (stdout, stderr, returncode, and an optional `sleep` the timeout test uses). One
+# A fake `copilot`: records each invocation's argv, stdin, cwd and environment, then replays one
+# queued response (stdout, stderr, returncode, and an optional `sleep` the timeout test uses). One
 # queued response is consumed per call and the last repeats, exactly as the fake `claude` in
-# `test_executor.py` does -- so a test that triggers the recovery pass can see both calls.
+# `test_executor.py` does -- so a test that triggers the recovery pass can see both calls. Every
+# stream is UTF-8 explicitly, for the reason spelled out above the fake `claude` in
+# `test_executor.py`: a bare `sys.stdin.read()` decodes with the machine's locale encoding, and
+# `cp1252` on Windows turns the system prompt's own em dash into a replacement character.
 _FAKE_COPILOT_SOURCE = '''#!/usr/bin/env python3
 import json
 import os
@@ -89,7 +86,12 @@ if os.path.exists(records_path):
 else:
     records = []
 
-records.append({"argv": sys.argv[1:], "cwd": os.getcwd(), "env": dict(os.environ)})
+records.append({
+    "argv": sys.argv[1:],
+    "stdin": sys.stdin.buffer.read().decode("utf-8"),
+    "cwd": os.getcwd(),
+    "env": dict(os.environ),
+})
 with open(records_path, "w") as handle:
     json.dump(records, handle)
 
@@ -99,8 +101,8 @@ with open(os.path.join(here, "responses.json")) as handle:
 response = responses[min(len(records) - 1, len(responses) - 1)]
 if response.get("sleep"):
     time.sleep(response["sleep"])
-sys.stdout.write(response.get("stdout", ""))
-sys.stderr.write(response.get("stderr", ""))
+sys.stdout.buffer.write(response.get("stdout", "").encode("utf-8"))
+sys.stderr.buffer.write(response.get("stderr", "").encode("utf-8"))
 sys.exit(response.get("returncode", 0))
 '''
 
@@ -172,8 +174,12 @@ class _FakeCopilotCase(unittest.TestCase):
         return self._records()[index]
 
     def _prompt_of(self, record) -> str:
+        """The prompt as the CLI actually received it: on **stdin**. `-p`'s own operand is the
+        empty string that tells the CLI to look there.
+        """
         argv = record["argv"]
-        return argv[argv.index("-p") + 1]
+        self.assertEqual(argv[argv.index("-p") + 1], "")
+        return record["stdin"]
 
 
 class TheRecordedCompletedRunTest(_FakeCopilotCase):
@@ -274,7 +280,6 @@ class TheClosedShapeIsVerifiedPerJobTest(_FakeCopilotCase):
             self.executor.execute(_request())
         self.assertIn("could not be verified", str(caught.exception))
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_the_enumeration_is_passed_one_flag_per_name(self):
         """`--excluded-tools` is variadic in the CLI's argument parser, so
         `--excluded-tools a b c` would swallow the flags that follow it.
@@ -374,7 +379,6 @@ class TheMalformedResultTest(_FakeCopilotCase):
             self.executor.execute(_request())
         self.assertIn("not JSON", str(caught.exception))
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_one_recovery_pass_is_attempted_and_quotes_the_refusal(self):
         """spec 002-words-are-words FR-011, unchanged: one recovery pass, quoting what was
         wrong. On the Claude path the CLI produced that refusal; here the runtime's own
@@ -466,17 +470,76 @@ class TheInvocationShapeTest(_FakeCopilotCase):
             executor.execute(_request())
         self.assertIn("not found on PATH", str(caught.exception))
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
-    def test_the_prompt_is_one_argv_element(self):
-        """C-2. A shell string would break the nonce fence the moment a stranger's answer
-        contained a quote.
+    def test_the_prompt_travels_on_stdin_and_no_argv_element_carries_it(self):
+        """C-2, in the shape that also survives Windows. A shell string would break the nonce
+        fence the moment a stranger's answer contained a quote; an argv element breaks it the
+        moment the prompt contains a newline and the CLI is a `.cmd`. stdin has neither problem.
         """
+        stranger = 'a stranger\'s "answer" with $VARS and `backticks` and\nnewlines'
         self._queue_stdout(_fixture("completed.jsonl"))
-        self.executor.execute(
-            _request(content='a stranger\'s "answer" with $VARS and `backticks` and\nnewlines')
+        self.executor.execute(_request(content=stranger))
+
+        record = self._record()
+        self.assertIn(stranger, self._prompt_of(record))
+
+        # Nothing of the prompt is in argv, and no argv element is even capable of carrying a
+        # line break -- the exact property `cmd.exe` takes away.
+        argv = record["argv"]
+        self.assertEqual(argv[argv.index("-p") + 1], "")
+        for element in argv:
+            self.assertNotIn("\n", element)
+            self.assertNotIn("KEEL-DATA", element)
+            self.assertNotIn("stranger", element)
+
+    def test_a_forty_line_prompt_reaches_the_cli_byte_for_byte(self):
+        """The regression test for the Windows truncation, written so it can only pass if every
+        line arrived: the whole rendered prompt is recomputed from the executor's own recorded
+        sections and compared with what the fake CLI read off stdin, character for character.
+
+        The founder text is forty lines of blank lines, quotes of both kinds, backslashes,
+        `%PERCENT%`/`$DOLLAR`, lines shaped like flags and shell pipelines, and non-ASCII of
+        several scripts -- everything `cmd.exe`, a shell, or a locale-encoded pipe would have
+        opinions about.
+        """
+        lines = []
+        for index in range(40):
+            if index % 7 == 3:
+                lines.append("")
+            elif index % 5 == 0:
+                lines.append(f'line {index}: "double" and \'single\' quotes')
+            elif index % 5 == 1:
+                lines.append(f"line {index}: a back\\slash and a %PERCENT% and a $DOLLAR")
+            elif index % 5 == 2:
+                lines.append(f"--not-a-flag-{index} & echo pwned | type con")
+            elif index % 5 == 4:
+                # Non-ASCII on purpose: the transport writes UTF-8 bytes rather than using
+                # `text=True`, whose locale encoding (`cp1252` on Windows) would mangle these.
+                lines.append(f"line {index}: caf\u00e9 \u2014 na\u00efve r\u00e9sum\u00e9s, \u65e5\u672c\u8a9e, \u20ac9.99")
+            else:
+                lines.append(f"line {index}: ordinary prose about corner shops")
+        content = "\n".join(lines)
+        self.assertEqual(len(content.splitlines()), 40)
+
+        self._queue_stdout(_fixture("completed.jsonl"))
+        self.executor.execute(_request(content=content))
+
+        expected = executor_module._render_copilot_prompt(
+            self.executor.last_request_sections,
+            executor_module._build_envelope_schema(_CONTRACT_COMPLETED),
         )
-        prompt = self._prompt_of(self._record())
-        self.assertIn('a stranger\'s "answer" with $VARS and `backticks` and\nnewlines', prompt)
+        received = self._prompt_of(self._record())
+        self.assertEqual(received, expected)
+
+        # Said again the blunt way, so a failure names what went missing rather than printing a
+        # multi-kilobyte diff: every one of the forty lines is in there, in order.
+        cursor = -1
+        for line in lines:
+            if not line:
+                continue
+            found = received.find(line, cursor + 1)
+            self.assertNotEqual(found, -1, f"line missing from the prompt the CLI read: {line!r}")
+            cursor = found
+        self.assertGreater(len(received.splitlines()), 40)
 
     def test_a_prompt_above_the_guard_is_refused_by_name(self):
         self._queue_stdout(_fixture("completed.jsonl"))
@@ -485,7 +548,6 @@ class TheInvocationShapeTest(_FakeCopilotCase):
         self.assertIn(str(COPILOT_MAX_PROMPT_BYTES), str(caught.exception))
         self.assertFalse((self.bin_dir / "records.json").exists())
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_the_system_prompt_and_the_schema_travel_in_the_text(self):
         """C-8: the prompt is the runtime's, not the host's. The two sections Claude gets as
         flags are the *only* difference, and both sit above TASK and outside the fence.
@@ -519,7 +581,6 @@ class TheInvocationShapeTest(_FakeCopilotCase):
         copilot = executor_module._render_copilot_prompt(sections, {"type": "object"})
         self.assertTrue(copilot.endswith(shared))
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_cwd_is_an_empty_per_job_directory_under_keel_home_jobs(self):
         self._queue_stdout(_fixture("completed.jsonl"))
         self.executor.execute(_request(job_id="job-xyz"))
@@ -529,7 +590,6 @@ class TheInvocationShapeTest(_FakeCopilotCase):
         self.assertTrue(expected.is_dir())
         self.assertEqual(list(expected.iterdir()), [])
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_the_model_is_omitted_when_nothing_pinned_one_and_passed_when_something_did(self):
         """C-5. It is `None` by default rather than a hard-coded slug because pinning is a
         property of the machine's Copilot catalogue: on the founder's Mac on 2026-09-09, CLI
@@ -547,7 +607,6 @@ class TheInvocationShapeTest(_FakeCopilotCase):
     def test_max_ai_credits_is_never_below_the_cli_minimum(self):
         self.assertEqual(CopilotExecutor(max_ai_credits=1).max_ai_credits, 30)
 
-    @unittest.skipIf(sys.platform == "win32", _COPILOT_ARGV_NEWLINE_SKIP)
     def test_auto_update_is_off(self):
         self._queue_stdout(_fixture("completed.jsonl"))
         self.executor.execute(_request())

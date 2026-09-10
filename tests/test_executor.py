@@ -40,6 +40,14 @@ _NONCE_OPEN_RE = re.compile(r"<<<KEEL-DATA ([0-9a-f]+)>>>")
 # per invocation, the last one repeating if invoked more times than queued. Both files
 # live next to the script itself, so no data needs to travel through the child's
 # (allow-listed) environment.
+# Both fakes below speak **UTF-8 on every stream, explicitly**, because that is what the CLIs
+# they stand in for do: `claude` and `copilot` are Node programs, which decode stdin and encode
+# stdout as UTF-8 whatever the machine's locale says, and `_run_with_prompt_on_stdin` writes and
+# reads UTF-8 to match. A bare `sys.stdin.read()` here would decode with the *locale* encoding
+# instead -- `cp1252` on a stock Windows runner -- and the em dash the runtime's own system prompt
+# contains came back as `\ufffd` (measured on Windows CI, which is exactly what the byte-for-byte
+# test below is for). `json.dump`'s default `ensure_ascii=True` keeps the two JSON side-channels
+# ASCII, so only the three standard streams need saying out loud.
 _FAKE_CLAUDE_SOURCE = '''#!/usr/bin/env python3
 import json
 import os
@@ -56,7 +64,7 @@ else:
 
 records.append({
     "argv": sys.argv[1:],
-    "stdin": sys.stdin.read(),
+    "stdin": sys.stdin.buffer.read().decode("utf-8"),
     "cwd": os.getcwd(),
     "env": dict(os.environ),
 })
@@ -69,8 +77,8 @@ with open(os.path.join(here, "responses.json")) as handle:
 index = min(len(records) - 1, len(responses) - 1)
 response = responses[index]
 
-sys.stdout.write(response.get("stdout", ""))
-sys.stderr.write(response.get("stderr", ""))
+sys.stdout.buffer.write(response.get("stdout", "").encode("utf-8"))
+sys.stderr.buffer.write(response.get("stderr", "").encode("utf-8"))
 sys.exit(response.get("returncode", 0))
 '''
 
