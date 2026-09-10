@@ -605,7 +605,18 @@ jobs:
                   timeout_seconds=300.0,
                   model=os.environ.get("KEEL_COPILOT_MODEL") or None,
               )
-              answer = executor.execute(request)
+              try:
+                  answer = executor.execute(request)
+              except Exception:
+                  # Diagnostic only, temporary: a run that fails _assert_closed_shape's
+                  # tool_count check gives no other way to see *which* tools survived the
+                  # exclusion list on this OS -- dump every session.usage_checkpoint's raw
+                  # tools/tool_count before re-raising, so the run stays red but names them.
+                  for event in executor.last_events or []:
+                      if event.get("type") == "session.usage_checkpoint":
+                          print("::warning::usage_checkpoint on %s: %s"
+                                % (os.environ.get("RUNNER_OS"), json.dumps(event.get("data"))))
+                  raise
               print("answer:", json.dumps(answer))
               print("envelope:", json.dumps(executor.last_envelope))
 
