@@ -237,14 +237,28 @@ def _ps_stat_state(pid: int) -> Optional[str]:
 
 
 def _pid_alive_windows(pid: int) -> bool:  # pragma: no cover -- exercised on Windows only
+    """`OpenProcess` alone is not enough: a Windows process object -- and therefore its pid --
+    stays valid for as long as *any* handle to it is still open, which very much includes the
+    handle a caller's own `subprocess.Popen` keeps until it is waited on (or garbage-collected).
+    A test (or a founder's own shell) that spawned the runtime and has not yet reaped it makes
+    `OpenProcess` succeed for a pid that has already exited -- Windows' nearest equivalent to a
+    POSIX zombie (module docstring, DRIFT #57's Windows counterpart). `GetExitCodeProcess` is the
+    second half of the probe: `STILL_ACTIVE` (259) means genuinely running, anything else means
+    the process has already terminated, whatever else still points at it.
+    """
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
-        PROCESS_QUERY_LIMITED_INFORMATION, False, pid
-    )
+    STILL_ACTIVE = 259
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return False
-    ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
-    return True
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False  # could not be read at all -- no stronger claim than "not alive"
+        return exit_code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def is_stale(

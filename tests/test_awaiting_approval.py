@@ -603,12 +603,26 @@ class ConnectAwaitingApprovalEndToEndTest(unittest.TestCase):
             self.assertEqual(payload["pid"], child.pid)
 
             self.assertTrue(reaped.wait(timeout=5), "connect did not exit after being stopped")
-            self.assertEqual(child.returncode, 0)
+            if sys.platform != "win32":
+                # `disconnect`'s SIGTERM (D5) is caught by the child's own handler there, which
+                # exits 0. On Windows os.kill(SIGTERM) is TerminateProcess -- the child's handler
+                # never runs, and the exit code is the signal number itself (15), not 0 (the same
+                # platform fact the sibling SIGTERM test below skips for). `disconnect`'s own
+                # cleanup (`_remove_if_still_ours`) does not depend on that handler, so the
+                # heartbeat assertion below still holds on every platform.
+                self.assertEqual(child.returncode, 0)
             self.assertFalse(heartbeat.path(self.home).exists())
         finally:
             with contextlib.suppress(OSError):
                 child.kill()
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "os.kill/Popen.send_signal(SIGTERM) call TerminateProcess unconditionally on Windows -- "
+        "the child's own SIGTERM handler (_install_heartbeat_shutdown_handlers) never runs, so "
+        "there is no clean-exit-0 path to observe from outside; disconnect.py's own comment on "
+        "KILL_SIGNAL notes the same platform fact",
+    )
     def test_sigterm_against_the_real_process_exits_zero_with_no_traceback(self):
         child, reaped, captured = self._spawn_connect()
         try:

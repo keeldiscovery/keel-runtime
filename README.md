@@ -454,3 +454,7 @@ the `dev` extra, `pip install -e ".[dev]"`. **Neither `keyring` nor `jsonschema`
 in CI**, and every row of the matrix asserts they are absent before running the suite: the
 `0600` credential file and the stdlib subset validator are what founders run, so they are what is
 tested (invariants R-1 and R-2).
+
+## License
+
+Apache License, Version 2.0 — see [`LICENSE`](LICENSE).
