@@ -609,6 +609,13 @@ class ConnectAwaitingApprovalEndToEndTest(unittest.TestCase):
             with contextlib.suppress(OSError):
                 child.kill()
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "os.kill/Popen.send_signal(SIGTERM) call TerminateProcess unconditionally on Windows -- "
+        "the child's own SIGTERM handler (_install_heartbeat_shutdown_handlers) never runs, so "
+        "there is no clean-exit-0 path to observe from outside; disconnect.py's own comment on "
+        "KILL_SIGNAL notes the same platform fact",
+    )
     def test_sigterm_against_the_real_process_exits_zero_with_no_traceback(self):
         child, reaped, captured = self._spawn_connect()
         try:

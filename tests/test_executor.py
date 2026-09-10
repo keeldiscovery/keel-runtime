@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +29,8 @@ from keel_runtime.executor import (
     InvalidResponse,
     build_prompt,
 )
+
+from ._fake_cli import install_fake_cli
 
 _NONCE_OPEN_RE = re.compile(r"<<<KEEL-DATA ([0-9a-f]+)>>>")
 
@@ -200,9 +201,7 @@ class _ExecutorTestBase(unittest.TestCase):
         self.home = Path(self._tmp.name) / "home"
         self.home.mkdir()
 
-        fake_claude = self.bin_dir / "claude"
-        fake_claude.write_text(_FAKE_CLAUDE_SOURCE)
-        fake_claude.chmod(fake_claude.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        install_fake_cli(self.bin_dir, "claude", _FAKE_CLAUDE_SOURCE)
 
         self._path_backup = os.environ.get("PATH", "")
         os.environ["PATH"] = f"{self.bin_dir}{os.pathsep}{self._path_backup}"

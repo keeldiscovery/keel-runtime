@@ -103,9 +103,13 @@ class ScreenTableTest(unittest.TestCase):
             self.assertIn("same context key set", str(ctx.exception))
 
     def test_a_missing_table_is_refused_naming_the_path(self):
+        # `load_screen_table` reports `str(Path(path))`, which normalises the separator on
+        # Windows (`\nowhere\context-keys.json`) -- build the expectation the same way rather
+        # than asserting a POSIX-only string.
+        missing = Path("/nowhere/context-keys.json")
         with self.assertRaises(ExecutorUnavailable) as ctx:
-            load_screen_table("/nowhere/context-keys.json")
-        self.assertIn("/nowhere/context-keys.json", str(ctx.exception))
+            load_screen_table(str(missing))
+        self.assertIn(str(missing), str(ctx.exception))
 
     def test_a_table_that_is_not_json_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:

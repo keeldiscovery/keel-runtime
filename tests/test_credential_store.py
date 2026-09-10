@@ -1,6 +1,7 @@
 """Tests for keel_runtime.credential_store's file backend (spec FR-025)."""
 import os
 import stat
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -33,6 +34,11 @@ class CredentialStoreFileBackendTest(unittest.TestCase):
         self.assertEqual(loaded.expires_at, 123.0)
         self.assertEqual(loaded.scope, ["s1"])
 
+    @unittest.skipIf(
+        sys.platform == "win32",
+        "NTFS has no POSIX permission bits: os.chmod(0o600) does not restrict the file there, "
+        "and credential_store.save's own chmod is documented best-effort for exactly this case",
+    )
     def test_file_mode_is_0600(self):
         store = CredentialStore(self.home, backend="file")
         store.save(Credential(access_token="a", refresh_token="r", expires_at=1.0, scope=[]))

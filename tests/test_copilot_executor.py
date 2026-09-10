@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import sys
 import tempfile
 import unittest
@@ -37,6 +36,8 @@ from keel_runtime.executor import (
     InferenceRequest,
     InvalidResponse,
 )
+
+from ._fake_cli import install_fake_cli
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "copilot"
 
@@ -119,9 +120,7 @@ class _FakeCopilotCase(unittest.TestCase):
         root = Path(self._tmp.name)
         self.bin_dir = root / "bin"
         self.bin_dir.mkdir()
-        self.script = self.bin_dir / "copilot"
-        self.script.write_text(_FAKE_COPILOT_SOURCE, encoding="utf-8")
-        self.script.chmod(self.script.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        install_fake_cli(self.bin_dir, "copilot", _FAKE_COPILOT_SOURCE)
 
         self.home = root / "keel-home"
         self.home.mkdir()
@@ -566,6 +565,10 @@ class BuildEnvAllowListTest(unittest.TestCase):
         self.addCleanup(self._restore)
         os.environ.update(
             {
+                # Explicit, not ambient: Windows CI runners do not set `HOME` at all (they use
+                # `USERPROFILE`), so asserting the common set reaches both executors must not
+                # depend on whatever the host happened to export.
+                "HOME": "/home/founder",
                 "KEEL_HOME": "/tmp/keel",
                 "KEEL_BASE_URL": "http://localhost:18081",
                 "PYTHONPATH": "/somewhere/the/skill/put/us",

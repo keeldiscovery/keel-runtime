@@ -377,10 +377,11 @@ class ClaudeCodeExecutor(Executor):
         self.last_request_sections: dict | None = None
         self.last_events: list | None = None
         self.last_schema_error: str | None = None
+        self._resolved_binary: str | None = None  # set by `execute()`; see its docstring note
 
     def _build_argv(self, envelope_schema: dict) -> list:
         return [
-            self.binary,
+            self._resolved_binary,
             "-p",
             "--tools",
             "",
@@ -430,7 +431,19 @@ class ClaudeCodeExecutor(Executor):
         return events, result_event, completed
 
     def execute(self, request: InferenceRequest) -> dict:
-        if shutil.which(self.binary) is None:
+        # Resolved once per call, and the *resolved* path -- not `self.binary` verbatim -- is
+        # what actually gets run below. On Windows a real Claude Code install is `claude.cmd`
+        # (the npm shim), never `claude.exe`: `shutil.which` finds it (it walks `PATHEXT`), but
+        # `subprocess.run(["claude", ...])` without `shell=True` does not -- `CreateProcess` only
+        # ever auto-appends `.exe` to an extension-less name, so the bare name alone resolves to
+        # nothing and the call would fail with a raw `FileNotFoundError` on every Windows founder
+        # who installed the CLI exactly as its own installer tells them to. Handing the already-
+        # resolved, extension-bearing path to `subprocess.run` sidesteps that: Windows' own loader
+        # recognises a `.cmd`/`.bat` file by its extension and hands it to `cmd.exe` itself, no
+        # `shell=True` needed (and POSIX's `which()` already returns a directly-executable path,
+        # so this changes nothing there).
+        self._resolved_binary = shutil.which(self.binary)
+        if self._resolved_binary is None:
             raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
 
         sections = _prompt_sections(request)
@@ -793,6 +806,7 @@ class CopilotExecutor(Executor):
         self.last_request_sections: dict | None = None
         self.last_events: list | None = None
         self.last_schema_error: str | None = None
+        self._resolved_binary: str | None = None  # set by `execute()`; see `ClaudeCodeExecutor`
 
     def _build_argv(self, prompt: str, job_dir: Path) -> list:
         """The design's argv, one process per job. Every flag here was accepted by 1.0.83.
@@ -801,7 +815,7 @@ class CopilotExecutor(Executor):
         this CLI; the first two moved into the prompt (`_render_copilot_prompt`), the last two
         have no equivalent and the timeout is ours.
         """
-        argv = [self.binary, "-p", prompt]
+        argv = [self._resolved_binary, "-p", prompt]
         for tool in COPILOT_EXCLUDED_TOOLS:
             # Variadic in commander, so one flag per name: `--excluded-tools a b c` would eat
             # the flags that follow it.
@@ -920,7 +934,11 @@ class CopilotExecutor(Executor):
         return parsed
 
     def execute(self, request: InferenceRequest) -> dict:
-        if shutil.which(self.binary) is None:
+        # See `ClaudeCodeExecutor.execute`'s note: the *resolved* path, not `self.binary`
+        # verbatim, is what `subprocess.run` below actually needs on Windows, where a real
+        # Copilot CLI install is `copilot.cmd`.
+        self._resolved_binary = shutil.which(self.binary)
+        if self._resolved_binary is None:
             raise ExecutorUnavailable(f"'{self.binary}' executable not found on PATH")
 
         # Cleared per call, so a reused executor never reports the previous job's envelope

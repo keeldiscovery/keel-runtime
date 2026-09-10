@@ -3,6 +3,7 @@ corrupt-file handling, pid liveness, and staleness (data-model.md, research.md Â
 """
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -87,11 +88,14 @@ class PidAliveTest(unittest.TestCase):
         self.assertFalse(heartbeat.pid_alive(2**30))
 
     def test_false_for_a_pid_that_just_exited(self):
-        pid = os.fork()
-        if pid == 0:  # pragma: no cover -- child process branch
-            os._exit(0)
-        os.waitpid(pid, 0)
-        self.assertFalse(heartbeat.pid_alive(pid))
+        """A real child process, reaped by this process (its real parent) before the assertion --
+        portable across platforms, unlike `os.fork` (POSIX-only; the real-zombie case below stays
+        fork-based and POSIX-only, since Windows has no zombie state for `pid_alive` to see
+        through in the first place).
+        """
+        child = subprocess.Popen([sys.executable, "-c", "pass"])
+        child.wait()
+        self.assertFalse(heartbeat.pid_alive(child.pid))
 
     @unittest.skipIf(sys.platform == "win32", "os.fork is POSIX-only; no zombie state on Windows")
     def test_false_for_a_real_zombie(self):
