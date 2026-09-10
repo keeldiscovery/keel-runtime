@@ -229,20 +229,29 @@ def _build_envelope_schema(response_contract: dict) -> dict:
 # interpreter variable either (invariant R-3): `PYTHONPATH` is how the skill reaches the
 # runtime, and it has no business inside a host CLI's process.
 #
-# `SystemRoot` and `COMSPEC` are Windows-only (both are simply absent from `os.environ`
-# elsewhere, so this frozenset is a harmless no-op on POSIX): a subprocess launched there with
-# neither is not "a smaller sandbox", it can fail outright. `SystemRoot` is what the OS's own
-# crypto/random provider needs to initialize -- without it, a *Python* child (this project's own
-# fake-CLI fixtures included) can die on startup with `Fatal Python error:
-# _Py_HashRandomization_Init: failed to get random numbers to initialize Python`, a well-known
-# Windows gotcha for a subprocess given a hand-built environment. `COMSPEC` is a narrower case:
-# resolving `claude`/`copilot` on Windows finds `claude.cmd`/`copilot.cmd` (the shape an npm
-# install produces, `executor.execute`'s own note on `shutil.which`), and launching a `.cmd`
-# routes through `cmd.exe` at the OS level regardless of what `env=` this module passes --
-# `COMSPEC` reaches the child either way, so the allow-list says so rather than pretending
-# otherwise.
+# `SYSTEMROOT`, `WINDIR`, `COMSPEC` and `PATHEXT` are Windows-only (all four are simply absent
+# from `os.environ` elsewhere, so this frozenset is a harmless no-op on POSIX): a subprocess
+# launched there with none of them is not "a smaller sandbox", it can fail outright.
+# **Spelled all-caps deliberately**: on Windows, `os.environ`'s own `_Environ` normalises every
+# key to upper case for storage (env var names are case-insensitive there; see CPython's
+# `os._createenviron`'s `encodekey = lambda k: k.upper()` on the `nt` branch), so iterating
+# `os.environ.items()` -- exactly what `_build_env` below does -- yields `SYSTEMROOT`, never
+# `SystemRoot`, however the OS itself displays it; a mixed-case entry here would silently never
+# match (measured: it did not, until this was corrected).
+#
+# `SYSTEMROOT`/`WINDIR` (two names for the same value) are what the OS's own crypto/random
+# provider needs to initialize -- without either, a *Python* child (this project's own fake-CLI
+# fixtures included) can die on startup with `Fatal Python error: _Py_HashRandomization_Init:
+# failed to get random numbers to initialize Python`, a well-known Windows gotcha for a
+# subprocess given a hand-built environment, and the actual cause of a whole Windows CI matrix
+# row failing before this was found. `COMSPEC`/`PATHEXT` are a narrower case: resolving
+# `claude`/`copilot` on Windows finds `claude.cmd`/`copilot.cmd` (the shape an npm install
+# produces, `executor.execute`'s own note on `shutil.which`), and launching a `.cmd` routes
+# through `cmd.exe` at the OS level regardless of what `env=` this module passes -- both reach
+# the child either way (measured), so the allow-list says so rather than pretending otherwise.
 _ALLOWED_ENV_EXACT = frozenset(
-    {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SystemRoot", "COMSPEC"}
+    {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
+     "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"}
 )
 
 _CLAUDE_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")

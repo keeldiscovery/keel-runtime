@@ -683,9 +683,11 @@ class TheChildsEnvironmentTest(_FakeCopilotCase):
         self.assertNotIn("ANTHROPIC_API_KEY", env)
         self.assertNotIn("KEEL_BASE_URL", env)
 
-        # `SystemRoot`/`COMSPEC` are in the executor's own allow-list on Windows only -- see
-        # `_ALLOWED_ENV_EXACT`'s own comment for why both are necessary there.
-        allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SystemRoot", "COMSPEC",
+        # `SYSTEMROOT`/`WINDIR`/`COMSPEC`/`PATHEXT` are in the executor's own allow-list on
+        # Windows only -- see `_ALLOWED_ENV_EXACT`'s own comment for why each is necessary there
+        # (and for why they are spelled all-caps).
+        allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
+                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT",
                          "GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"}
         # macOS's own process-spawn machinery injects a couple of harmless variables of its
         # own; excluded here so this asserts what the allow-list does, not what the OS does.

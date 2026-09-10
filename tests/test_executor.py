@@ -423,10 +423,13 @@ class ClaudeCodeExecutorTest(_ExecutorTestBase):
         self.assertNotIn("KEEL_BASE_URL", env)
         self.assertNotIn("KEEL_RUNTIME_TEST_JUNK", env)
 
-        # `SystemRoot`/`COMSPEC` are in the executor's own allow-list on Windows only (both are
-        # simply never in `os.environ` elsewhere) -- see `_ALLOWED_ENV_EXACT`'s own comment for
-        # why both are necessary there.
-        allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SystemRoot", "COMSPEC"}
+        # `SYSTEMROOT`/`WINDIR`/`COMSPEC`/`PATHEXT` are in the executor's own allow-list on
+        # Windows only (all four are simply never in `os.environ` elsewhere) -- see
+        # `_ALLOWED_ENV_EXACT`'s own comment for why each is necessary there, and for why they
+        # are spelled all-caps (`os.environ` itself normalises every key to upper case on
+        # Windows).
+        allowed_exact = {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
+                         "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT"}
         # macOS's own process-spawn machinery injects a couple of harmless variables
         # of its own (not something `_build_env` passed, and not a secret) -- excluded
         # here so this test asserts what the executor's own allow-list does, not what
