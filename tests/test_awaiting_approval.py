@@ -603,7 +603,14 @@ class ConnectAwaitingApprovalEndToEndTest(unittest.TestCase):
             self.assertEqual(payload["pid"], child.pid)
 
             self.assertTrue(reaped.wait(timeout=5), "connect did not exit after being stopped")
-            self.assertEqual(child.returncode, 0)
+            if sys.platform != "win32":
+                # `disconnect`'s SIGTERM (D5) is caught by the child's own handler there, which
+                # exits 0. On Windows os.kill(SIGTERM) is TerminateProcess -- the child's handler
+                # never runs, and the exit code is the signal number itself (15), not 0 (the same
+                # platform fact the sibling SIGTERM test below skips for). `disconnect`'s own
+                # cleanup (`_remove_if_still_ours`) does not depend on that handler, so the
+                # heartbeat assertion below still holds on every platform.
+                self.assertEqual(child.returncode, 0)
             self.assertFalse(heartbeat.path(self.home).exists())
         finally:
             with contextlib.suppress(OSError):

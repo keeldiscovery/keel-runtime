@@ -228,7 +228,22 @@ def _build_envelope_schema(response_contract: dict) -> dict:
 # `GITHUB_TOKEN` and `GH_HOST`, and **neither passes the other's**. Neither passes an
 # interpreter variable either (invariant R-3): `PYTHONPATH` is how the skill reaches the
 # runtime, and it has no business inside a host CLI's process.
-_ALLOWED_ENV_EXACT = frozenset({"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM"})
+#
+# `SystemRoot` and `COMSPEC` are Windows-only (both are simply absent from `os.environ`
+# elsewhere, so this frozenset is a harmless no-op on POSIX): a subprocess launched there with
+# neither is not "a smaller sandbox", it can fail outright. `SystemRoot` is what the OS's own
+# crypto/random provider needs to initialize -- without it, a *Python* child (this project's own
+# fake-CLI fixtures included) can die on startup with `Fatal Python error:
+# _Py_HashRandomization_Init: failed to get random numbers to initialize Python`, a well-known
+# Windows gotcha for a subprocess given a hand-built environment. `COMSPEC` is a narrower case:
+# resolving `claude`/`copilot` on Windows finds `claude.cmd`/`copilot.cmd` (the shape an npm
+# install produces, `executor.execute`'s own note on `shutil.which`), and launching a `.cmd`
+# routes through `cmd.exe` at the OS level regardless of what `env=` this module passes --
+# `COMSPEC` reaches the child either way, so the allow-list says so rather than pretending
+# otherwise.
+_ALLOWED_ENV_EXACT = frozenset(
+    {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM", "SystemRoot", "COMSPEC"}
+)
 
 _CLAUDE_ENV_PREFIXES = ("ANTHROPIC_", "CLAUDE_")
 _CLAUDE_ENV_EXACT = frozenset()
