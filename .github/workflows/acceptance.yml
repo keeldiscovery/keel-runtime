@@ -265,6 +265,78 @@ jobs:
           assert data.get("outcome") == "not_running", "expected not_running, got %r" % data
           print("disconnect ok:", data)
 
+      # A real device code from the live cloud, on every OS this matrix runs -- the one thing
+      # the closed-port steps above cannot prove: that a runtime built on *this* runner actually
+      # reaches Keel Cloud over the network (DNS, TLS, the device-authorization request itself),
+      # not just that it fails predictably against nothing. Device authorization needs no secret
+      # (it is the public, unauthenticated first half of the flow) and nothing here is approved,
+      # so no agent session and no credential is ever created on app.keeldiscovery.com.
+      - name: "A real device code from Keel Cloud (KEEL_BASE_URL=https://app.keeldiscovery.com)"
+        shell: python
+        run: |
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import tempfile
+
+          workspace = os.environ["GITHUB_WORKSPACE"]
+          script = os.path.join(workspace, "keel-connect-skill", "scripts", "keel_connect_check.py")
+          cloud_base_url = "https://app.keeldiscovery.com"
+
+          with tempfile.TemporaryDirectory() as fake_home:
+              env = dict(os.environ)
+              for var in ("KEEL_HOME", "KEEL_RUNTIME_PATH", "KEEL_EXECUTOR", "KEEL_BASE_URL",
+                          "CLAUDECODE", "COPILOT_CLI", "COPILOT_AGENT_SESSION_ID", "AI_AGENT"):
+                  env.pop(var, None)
+              env["KEEL_BASE_URL"] = cloud_base_url
+              env["HOME"] = fake_home
+              env["USERPROFILE"] = fake_home  # what Path.home() reads on Windows; harmless elsewhere
+
+              result = subprocess.run(
+                  [sys.executable, script, "--no-browser", "--wait-seconds", "20"],
+                  capture_output=True, text=True, timeout=60, env=env,
+              )
+              print("stdout:", result.stdout)
+              print("stderr:", result.stderr)
+              assert result.returncode == 0, "keel_connect_check.py exited %d" % result.returncode
+
+              lines = [line for line in result.stdout.splitlines() if line.strip()]
+              assert len(lines) == 1, "the script must print exactly one line of JSON: %r" % lines
+              payload = json.loads(lines[0])
+              print("payload:", payload)
+
+              assert payload.get("outcome") == "authorization_started", (
+                  "expected authorization_started against the live cloud: %r" % payload)
+
+              user_code = payload.get("user_code")
+              assert user_code and re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}", user_code), (
+                  "user_code is not of the form XXXX-XXXX: %r" % user_code)
+
+              verification_uri = payload.get("verification_uri")
+              assert verification_uri and verification_uri.startswith(cloud_base_url), (
+                  "verification_uri is not on %s: %r" % (cloud_base_url, verification_uri))
+
+              print("authorization_started ok: user_code=%s verification_uri=%s"
+                    % (user_code, verification_uri))
+
+              # Cleanup: the log file's own directory is the home this runtime is actually using
+              # (config.py derives it from cloud_base_url; reading it back off the payload avoids
+              # this step having to re-implement that derivation). Nothing was approved, so this
+              # is 'keel disconnect' on a runtime still waiting on a code nobody will ever redeem
+              # -- the runner must not leave that process behind.
+              home = os.path.dirname(payload["log_file"])
+              disconnect = subprocess.run(
+                  [sys.executable, "-m", "keel_runtime", "disconnect", "--home", home],
+                  capture_output=True, text=True, timeout=30, env=env,
+              )
+              print("disconnect stdout:", disconnect.stdout)
+              print("disconnect stderr:", disconnect.stderr)
+              assert disconnect.returncode == 0, (
+                  "keel disconnect exited %d" % disconnect.returncode)
+              print("disconnect ok:", disconnect.stdout.strip())
+
       # The skill's own unit tests (Makefile's `test:` target is `python -m unittest discover
       # tests -v`; called directly here, not through `make`, since Windows has no `make`). Safe to
       # run un-skipped on every OS in this matrix: the bundling step above already gave this
