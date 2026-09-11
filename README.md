@@ -295,7 +295,9 @@ founder and the referee should both see *why*, not only *what*.
   `structured_output`, never scraped from stdout. **Requires Claude Code ≥ 2.1.259.** An
   older CLI without `--json-schema` exits non-zero and the job fails `LLM_UNAVAILABLE`.
 
-  **The `--json-schema` envelope is one branch per allowed outcome** (`anyOf` of them), each
+  **The `--json-schema` envelope is one branch per allowed outcome** (`anyOf` of them under a
+  top-level `type: "object"` -- the CLI passes the document through as a tool's `input_schema`,
+  and the API refuses one without a `type`), each
   branch requiring the key that outcome must carry: a `COMPLETED` branch with `result`, a
   `NEEDS_INPUT` branch with `questions`, `additionalProperties: false` on both. It used to be one
   flat object with both keys optional, and staging measured what that costs -- the model answered
@@ -355,13 +357,14 @@ founder and the referee should both see *why*, not only *what*.
   same road as the prompt, and staging measured where that ends: `claude.CMD` launched through
   `cmd.exe`, exit 255 with no output, or `The filename, directory name, or volume label syntax
   is incorrect.` -- a batch interpreter re-parsing `--system-prompt`'s sentence and
-  `--json-schema`'s JSON. The runtime now **reads the npm shim**, takes the JavaScript entry
-  point it names (`node_modules\@anthropic-ai\claude-code\cli.js` and the Copilot equivalent,
-  parsed out of the shim's own text rather than guessed) and launches `[node, <that .js>, ...]`
-  with `node` found on `PATH` -- no `cmd.exe` in the chain. A shim it cannot parse, or a machine
-  with no `node`, falls back to launching the shim exactly as before and prints one
-  `KEEL_LAUNCH via=cmd.exe ... --` line into the launch log saying which and why. Nothing changes
-  on macOS or Linux.
+  `--json-schema`'s JSON. The runtime now **reads the npm shim** and launches what the shim itself
+  would have launched, parsed out of its own text rather than guessed: `[node, <the .js it names>,
+  ...]` where the package has a JavaScript bin (`@github/copilot`'s `npm-loader.js`), and the
+  executable directly where it has a native one (`@anthropic-ai/claude-code` installs
+  `bin/claude.exe`, so its shim contains no JavaScript at all). Either way, no `cmd.exe` in the
+  chain. A shim naming neither, or a machine with no `node` for a JavaScript one, falls back to
+  launching the shim exactly as before and prints one `KEEL_LAUNCH via=cmd.exe ... --` line into
+  the launch log saying which and why. Nothing changes on macOS or Linux.
 
   This CLI has **no `--json-schema`, no `--system-prompt`, no turn limit and no timeout flag**. The
   first two move into the prompt text, above TASK and *outside* the KEEL-DATA fence — they are the

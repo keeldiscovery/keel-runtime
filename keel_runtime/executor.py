@@ -286,7 +286,13 @@ def _build_envelope_schema(response_contract: dict) -> dict:
         }
     if len(branches) == 1:
         return branches[0]
-    return {"anyOf": branches}
+    # `type: "object"` at the top as well as inside every branch. Redundant as JSON Schema, and
+    # not redundant at all in practice: the CLI passes this document straight through as the
+    # `StructuredOutput` tool's `input_schema`, and the API refuses a tool schema without one --
+    # `API Error: 400 tools.0.custom.input_schema.type: Field required`, measured on all three
+    # operating systems in acceptance run 34613046096, where a bare `anyOf` failed every job it
+    # touched. This is the correction that run bought.
+    return {"type": "object", "anyOf": branches}
 
 
 # spec FR-002: nothing reaches the child but the CLI's own auth/config and the handful
@@ -394,37 +400,53 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
 #
 # Moving the *prompt* to stdin (spec 005's amendment) fixed the prompt and only the prompt. The
 # flags travel the same road, and this is the rest of that fix: **take `cmd.exe` out of the chain
-# entirely.** An npm shim is a generated batch file whose whole purpose is to run one JavaScript
-# file with `node`; its last line is, verbatim from npm's own `cmd-shim` generator
-# (`node_modules/npm/node_modules/cmd-shim/lib/index.js`, read 2026-09-11):
+# entirely** by launching what the shim would have launched.
 #
-#     endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\<target>" %*
+# An npm shim is a generated batch file, and its last line -- the one carrying `%*`, the caller's
+# own arguments -- names the program it runs. npm's own generator
+# (`node_modules/npm/node_modules/cmd-shim/lib/index.js`, read 2026-09-11) writes one of two
+# shapes, and **both are real on a Windows runner**, measured in acceptance run 34613046096:
 #
-# where `%dp0%` is `%~dp0`, the shim's own directory, and `<target>` is the relative path to the
-# entry point -- `node_modules\@anthropic-ai\claude-code\cli.js`, `node_modules\@github\copilot
-# \index.js`. So the shim is **read**, the quoted `.js` it names is resolved against the shim's own
-# directory, and `[node, <that .js>, *args]` is launched instead, with `node` found through
-# `shutil.which`. The path is parsed out of the shim's text rather than guessed from a package
-# name, because guessing would be a claim about somebody else's install layout.
+#   * the target has a `node` shebang, so the shim runs node on a JavaScript file:
+#         ... & "%_prog%" <flags> "%dp0%\node_modules\@github\copilot\npm-loader.js" %*
+#     -> launch `[node, *flags, <that .js>, *args]`, with `node` found through `shutil.which`.
+#   * the target has no shebang, because it is a native program, so the shim runs it directly:
+#         "%dp0%\node_modules\@anthropic-ai\claude-code\bin\claude.exe"   %*
+#     -> launch `[<that .exe>, *args]`.
 #
-# **Every fallback keeps working and says so.** A shim with no readable `.js` (a hand-written one,
-# a shim for a compiled program, or a future npm that changes its template) and a machine with no
-# `node` on `PATH` both fall back to launching the shim exactly as before -- cmd.exe and all --
-# with one line in the launch log naming which shim and why. Falling back silently would turn this
-# into a mystery the next time it matters.
+# The second one is the one `claude` actually has today (`npm view @anthropic-ai/claude-code bin`
+# -> `{claude: 'bin/claude.exe'}` at 2.1.268): the npm package installs a native launcher, and
+# there is no JavaScript in its shim anywhere. A first version of this fix looked only for a `.js`,
+# found none, and fell back to `cmd.exe` on the very host it was written for -- which is what the
+# acceptance run is for.
+#
+# `%dp0%` is `%~dp0`, the shim's own directory. The path is parsed out of the shim's text rather
+# than guessed from a package name, because guessing would be a claim about somebody else's
+# install layout -- and a wrong one here, twice over.
+#
+# **Every fallback keeps working and says so.** A shim naming neither JavaScript nor an executable
+# (a hand-written one, or a future npm that changes its template), and a machine with no `node`
+# for a JavaScript one, both fall back to launching the shim exactly as before -- cmd.exe and all
+# -- with one line in the launch log naming which shim and why. Falling back silently would turn
+# this into a mystery the next time it matters.
 #
 # **Nothing changes on macOS or Linux**: `os.name != "nt"` there and `which()` already returns a
 # directly executable path, so `_launch_argv` returns its argument unchanged.
 _CMD_SHIM_SUFFIXES = (".cmd", ".bat")
 
-# A quoted token ending in `.js`/`.cjs`/`.mjs`. Quoted on purpose: the generated shim also
-# contains `SET PATHEXT=%PATHEXT:;.JS;=;%`, which an unquoted match would happily mistake for a
-# path.
-_CMD_SHIM_TARGET_RE = re.compile(r'"([^"\r\n]*\.(?:js|cjs|mjs))"', re.IGNORECASE)
+# Windows' own loader will start these directly; anything else on a shim's launch line is either
+# JavaScript (run it with `node`) or another batch file (which would put `cmd.exe` back in the
+# chain, so it is not a way out).
+_DIRECT_EXEC_SUFFIXES = (".exe", ".com")
+_JAVASCRIPT_SUFFIXES = (".js", ".cjs", ".mjs")
+
+# Quoted tokens, in order. Quoted on purpose: the generated shim also contains
+# `SET PATHEXT=%PATHEXT:;.JS;=;%`, which a looser parser reads as a file name.
+_QUOTED_RE = re.compile(r'"([^"\r\n]*)"')
 
 
 def _expand_shim_path(raw: str, directory: str):
-    """`"%dp0%\\node_modules\\...\\cli.js"` as an absolute path on this machine, or `None`.
+    """One of a shim's quoted tokens as an absolute path on this machine, or `None`.
 
     `%dp0%`/`%~dp0` is the shim's own directory (npm's generator sets `dp0=%~dp0`). Any other
     batch variable is one this function does not understand, and a path it does not understand
@@ -439,13 +461,24 @@ def _expand_shim_path(raw: str, directory: str):
     return candidate if os.path.isfile(candidate) else None
 
 
-def _cmd_shim_target(shim_path: str):
-    """`(entry, node_args)` read out of an npm `.cmd` shim, or `None` if it names no JavaScript.
+def _cmd_shim_launch(shim_path: str):
+    """What the shim would run, as `(kind, program, leading_args)`, or `None`.
 
-    `node_args` are the flags the shim's own line passes to `node` before the entry point --
-    npm copies them from the target's shebang (`#!/usr/bin/env node --enable-source-maps`), so
-    they are part of how that program expects to be started, and dropping them would be
-    launching it differently from the way its own installer does.
+    `kind` is `"node"` (the program is a JavaScript file; `leading_args` are the flags the shim
+    passes to `node` before it, which npm copies from the target's own shebang -- dropping them
+    would start the program differently from the way its installer does) or `"exec"` (the
+    program is an executable the shim runs directly).
+
+    **Both shapes are real, and which one a host has is not a choice this runtime makes.**
+    Measured on a Windows runner (acceptance run 34613046096): `@github/copilot` installs a
+    JavaScript bin and its shim runs `node ... npm-loader.js`, while `@anthropic-ai/claude-code`
+    installs a **native launcher** (`npm view @anthropic-ai/claude-code bin` ->
+    `{claude: 'bin/claude.exe'}` at 2.1.268) and its shim runs that `.exe` directly -- there is no
+    JavaScript in it anywhere. A parser that only looked for `.js` found nothing there and fell
+    back to `cmd.exe`, which is the road that fails.
+
+    Only the shim's **launch line** is read -- the one carrying `%*`, the caller's own arguments.
+    The template's other quoted tokens (`IF EXIST "%dp0%\node.exe"`) are not what it runs.
     """
     # `os.path`, not `pathlib`, on purpose: `pathlib.Path` picks its flavour from `os.name` at
     # construction, so a test that monkey-patches `os.name` to "nt" on a Mac -- which is how the
@@ -459,14 +492,23 @@ def _cmd_shim_target(shim_path: str):
 
     directory = os.path.dirname(os.path.abspath(shim_path))
     for line in text.splitlines():
-        match = _CMD_SHIM_TARGET_RE.search(line)
-        if match is None:
+        if "%*" not in line:
             continue
-        entry = _expand_shim_path(match.group(1), directory)
-        if entry is None:
-            continue
-        node_args = [token for token in line[: match.start()].split() if token.startswith("-")]
-        return entry, node_args
+        for match in _QUOTED_RE.finditer(line):
+            token = match.group(1)
+            lowered = token.lower()
+            if lowered.endswith(_JAVASCRIPT_SUFFIXES):
+                entry = _expand_shim_path(token, directory)
+                if entry is None:
+                    continue
+                leading = [
+                    arg for arg in line[: match.start()].split() if arg.startswith("-")
+                ]
+                return "node", entry, leading
+            if lowered.endswith(_DIRECT_EXEC_SUFFIXES):
+                program = _expand_shim_path(token, directory)
+                if program is not None:
+                    return "exec", program, []
     return None
 
 
@@ -481,23 +523,27 @@ def _launch_argv(argv):
     if os.name != "nt" or not binary.lower().endswith(_CMD_SHIM_SUFFIXES):
         return argv, None
 
-    found = _cmd_shim_target(binary)
+    found = _cmd_shim_launch(binary)
     if found is None:
         return argv, (
-            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no JavaScript entry point could be read "
-            "out of this shim, so it is launched as a batch file"
+            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- this shim names neither a JavaScript "
+            "entry point nor an executable, so it is launched as a batch file"
         )
-    entry, node_args = found
+    kind, program, leading = found
+
+    if kind == "exec":
+        return [program] + leading + argv[1:], (
+            f"KEEL_LAUNCH via=program program={program} shim={binary}"
+        )
 
     node = shutil.which("node")
     if node is None:
         return argv, (
-            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no 'node' on PATH to run {entry}, so the "
-            "shim is launched as a batch file"
+            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no 'node' on PATH to run {program}, so "
+            "the shim is launched as a batch file"
         )
-
-    return [node] + node_args + [entry] + argv[1:], (
-        f"KEEL_LAUNCH via=node node={node} entry={entry} shim={binary}"
+    return [node] + leading + [program] + argv[1:], (
+        f"KEEL_LAUNCH via=node node={node} entry={program} shim={binary}"
     )
 
 

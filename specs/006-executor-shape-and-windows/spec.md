@@ -116,21 +116,29 @@ path nothing had ever run.
 ### Functional Requirements
 
 - **FR-001**: `_build_envelope_schema` MUST build one branch per allowed outcome and combine them
-  with `anyOf`; each branch names its outcome as a `const`, requires the key that outcome must
-  carry (`result` for `COMPLETED`, `questions` for `NEEDS_INPUT`), and sets
-  `additionalProperties: false`. An outcome the runtime has no rule for requires the outcome
-  alone. A contract naming no outcome at all keeps the flat envelope (nothing to branch on).
+  with `anyOf` under a top-level `type: "object"`; each branch names its outcome as a `const`,
+  requires the key that outcome must carry (`result` for `COMPLETED`, `questions` for
+  `NEEDS_INPUT`), and sets `additionalProperties: false`. An outcome the runtime has no rule for
+  requires the outcome alone. A contract naming no outcome at all keeps the flat envelope
+  (nothing to branch on). **The top-level `type` is not decoration**: the CLI hands this document
+  to the API as the `StructuredOutput` tool's `input_schema`, and a tool schema without one is
+  `400 tools.0.custom.input_schema.type: Field required` -- measured on all three operating
+  systems in acceptance run 34613046096, where a bare `anyOf` failed every job it touched.
 - **FR-002**: when a refusal says a key is missing -- Ajv's `must have required property 'x'`, or
   `response_validator`'s own `COMPLETED requires a 'result'` / `NEEDS_INPUT requires a non-empty
   questions[] array` -- the recovery prompt MUST name that key and ask for it. Every other refusal
   keeps the existing "cut the named field to half its length" wording verbatim.
 - **FR-003**: on Windows, a resolved binary ending `.cmd`/`.bat` MUST be **read**, and the
-  JavaScript entry point it names resolved against the shim's own directory (`%dp0%`/`%~dp0`).
-  The path is parsed out of the shim's text, never guessed from a package name. Node flags the
-  shim passes travel with it. A target that is not a file on this machine is not an entry point.
-- **FR-004**: when an entry point is found and `node` is on `PATH`, both executors MUST launch
-  `[node, *node_flags, <entry>, *args]`. Otherwise they MUST launch the shim as before, and the
-  runtime MUST print one line naming the shim and the reason -- once per process per shape.
+  program named on its launch line (the line carrying `%*`) resolved against the shim's own
+  directory (`%dp0%`/`%~dp0`). Both of npm's shapes MUST be handled: a JavaScript entry point
+  (`node` plus any flags the shim passes it, which npm copies from the target's shebang) **and a
+  native executable the shim runs directly**. The path is parsed out of the shim's text, never
+  guessed from a package name. A target that is not a file on this machine is not a program.
+- **FR-004**: both executors MUST launch what the shim would have launched -- `[node,
+  *node_flags, <entry>, *args]` for the JavaScript shape, `[<exe>, *args]` for the native one.
+  Otherwise (nothing recognisable in the shim, or no `node` for a JavaScript one) they MUST
+  launch the shim as before, and the runtime MUST print one line naming the shim and the reason
+  -- once per process per shape.
 - **FR-005**: nothing changes off Windows, and nothing changes for a binary that is not a shim.
 - **FR-006**: `response_validator` is unchanged. Its stdlib subset never sees the envelope schema
   -- the envelope's rules are explicit Python in `validate_response`, and the `completed_result_schema`
@@ -177,3 +185,22 @@ actually sends:
 The npm shim fixtures are npm's own generator's output, produced by calling
 `node_modules/npm/node_modules/cmd-shim` directly (see `tests/fixtures/windows/MANIFEST.json`),
 not written by hand.
+
+**What the first acceptance run corrected.** Run 34613046096 is part of this feature's record, not
+a footnote to it. It failed, twice over, and both failures were things no local test could have
+told us:
+
+* `API Error: 400 tools.0.custom.input_schema.type: Field required` on all three operating
+  systems. The `anyOf` document is passed straight through as a *tool schema*, and the API
+  requires `type` on one. Adding `type: "object"` above the `anyOf` is the whole fix (FR-001).
+* `KEEL_LAUNCH via=cmd.exe shim=C:\npm\prefix\claude.CMD -- no JavaScript entry point could be
+  read out of this shim` on windows-latest. `@anthropic-ai/claude-code`'s npm package installs a
+  **native launcher** (`npm view ... bin` -> `{claude: 'bin/claude.exe'}`, 2.1.268), so its shim
+  contains no JavaScript at all and a `.js`-only parser fell back to `cmd.exe` on the exact host
+  this feature exists for. `@github/copilot` in the same run took the new road correctly:
+  `KEEL_LAUNCH via=node node=...node.EXE entry=...\@github\copilot\npm-loader.js
+  shim=C:\npm\prefix\copilot.CMD`, and its three-line prompt step passed on windows-latest.
+  The parser now handles both of npm's shapes (FR-003).
+
+Both corrections are in this feature's second commit, and the acceptance run after it is the
+proof that replaces this one.

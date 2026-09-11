@@ -41,8 +41,9 @@ _COPILOT_FIXTURES = Path(__file__).parent / "fixtures" / "copilot"
 
 _SHIM_TARGETS = {
     "claude.cmd": "node_modules/@anthropic-ai/claude-code/cli.js",
+    "claude-native.cmd": "node_modules/@anthropic-ai/claude-code/bin/claude.exe",
     "copilot.cmd": "node_modules/@github/copilot/index.js",
-    "compiled-tool.cmd": "node_modules/compiled-tool/tool.exe",
+    "hand-written-python.cmd": "fake-cli.py",
 }
 
 # A fake host CLI as **real JavaScript**, so a real `node` runs it -- which is the whole point:
@@ -133,7 +134,8 @@ class ShimParsingTest(unittest.TestCase):
 
     def test_the_claude_shim_names_its_cli_js(self):
         shim = _install_shim(self.root, "claude.cmd")
-        entry, node_args = executor_module._cmd_shim_target(str(shim))
+        kind, entry, node_args = executor_module._cmd_shim_launch(str(shim))
+        self.assertEqual(kind, "node")
         self.assertEqual(
             Path(entry).resolve(),
             (self.root / "node_modules/@anthropic-ai/claude-code/cli.js").resolve(),
@@ -146,7 +148,7 @@ class ShimParsingTest(unittest.TestCase):
         starting it differently from the way its own installer does.
         """
         shim = _install_shim(self.root, "copilot.cmd")
-        entry, node_args = executor_module._cmd_shim_target(str(shim))
+        _, entry, node_args = executor_module._cmd_shim_launch(str(shim))
         self.assertTrue(entry.endswith(os.path.join("@github", "copilot", "index.js")))
         self.assertEqual(node_args, ["--enable-source-maps"])
 
@@ -162,11 +164,27 @@ class ShimParsingTest(unittest.TestCase):
             line for line in text.splitlines() if "%_prog%" not in line
         )
         shim.write_text(without_launch_line, encoding="utf-8")
-        self.assertIsNone(executor_module._cmd_shim_target(str(shim)))
+        self.assertIsNone(executor_module._cmd_shim_launch(str(shim)))
 
-    def test_a_shim_for_a_compiled_program_names_no_javascript(self):
-        shim = _install_shim(self.root, "compiled-tool.cmd")
-        self.assertIsNone(executor_module._cmd_shim_target(str(shim)))
+    def test_the_shape_claude_actually_has_names_an_executable_not_javascript(self):
+        """`npm view @anthropic-ai/claude-code bin` -> `{claude: 'bin/claude.exe'}` (2.1.268):
+        the npm package installs a native launcher, so its shim runs that `.exe` directly and
+        there is no JavaScript in it anywhere. Measured on a Windows runner in acceptance run
+        34613046096, where the first version of this parser found nothing and fell back to
+        `cmd.exe` -- on the very host it was written for.
+        """
+        shim = _install_shim(self.root, "claude-native.cmd")
+        kind, program, leading = executor_module._cmd_shim_launch(str(shim))
+        self.assertEqual(kind, "exec")
+        self.assertTrue(program.endswith(os.path.join("bin", "claude.exe")))
+        self.assertEqual(leading, [])
+
+    def test_a_shim_naming_neither_javascript_nor_an_executable_is_refused(self):
+        """`tests/_fake_cli.py`'s own shape: a `.py` behind a hand-written shim. Nothing here
+        can be launched without an interpreter this runtime has no business choosing.
+        """
+        shim = _install_shim(self.root, "hand-written-python.cmd")
+        self.assertIsNone(executor_module._cmd_shim_launch(str(shim)))
 
     def test_a_target_that_is_not_on_this_machine_is_not_returned(self):
         """A shim left behind by an uninstall names a `cli.js` that is gone. Launching `node`
@@ -174,15 +192,15 @@ class ShimParsingTest(unittest.TestCase):
         """
         shim = _install_shim(self.root, "claude.cmd")
         (self.root / _SHIM_TARGETS["claude.cmd"]).unlink()
-        self.assertIsNone(executor_module._cmd_shim_target(str(shim)))
+        self.assertIsNone(executor_module._cmd_shim_launch(str(shim)))
 
     def test_an_unreadable_shim_is_not_an_exception(self):
-        self.assertIsNone(executor_module._cmd_shim_target(str(self.root / "nothing-here.cmd")))
+        self.assertIsNone(executor_module._cmd_shim_launch(str(self.root / "nothing-here.cmd")))
 
     def test_a_batch_variable_this_parser_does_not_understand_is_refused(self):
         shim = self.root / "odd.cmd"
         shim.write_text('@echo off\r\n"%SOMEWHERE%\\cli.js" %*\r\n', encoding="utf-8")
-        self.assertIsNone(executor_module._cmd_shim_target(str(shim)))
+        self.assertIsNone(executor_module._cmd_shim_launch(str(shim)))
 
 
 class LaunchArgvTest(unittest.TestCase):
@@ -215,7 +233,9 @@ class LaunchArgvTest(unittest.TestCase):
         with mock.patch.object(os, "name", "nt"), self._with_node():
             argv, note = executor_module._launch_argv([str(shim), "-p", "--json-schema", "{}"])
 
-        self.assertEqual(Path(argv[0]).name, "node")
+        # `node.EXE` on a Windows runner, `node` elsewhere -- `shutil.which` returns the name
+        # it resolved, extension and all (measured: tests.yml on windows-latest).
+        self.assertTrue(Path(argv[0]).name.lower().startswith("node"), argv[0])
         self.assertEqual(Path(argv[1]).resolve(), Path(entry).resolve())
         self.assertEqual(argv[2:], ["-p", "--json-schema", "{}"])
         self.assertIn("via=node", note)
@@ -230,12 +250,31 @@ class LaunchArgvTest(unittest.TestCase):
         self.assertEqual(argv[3:], ["-p", ""])
 
     def test_an_unparseable_shim_falls_back_to_the_shim_and_says_why(self):
-        shim = _install_shim(self.root, "compiled-tool.cmd")
+        shim = _install_shim(self.root, "hand-written-python.cmd")
         with mock.patch.object(os, "name", "nt"), self._with_node():
             argv, note = executor_module._launch_argv([str(shim), "-p"])
         self.assertEqual(argv, [str(shim), "-p"])
         self.assertIn("via=cmd.exe", note)
-        self.assertIn("no JavaScript entry point", note)
+        self.assertIn("neither a JavaScript entry point nor an executable", note)
+
+    def test_a_native_shim_launches_its_executable_directly(self):
+        """No `node` in this chain, and no `cmd.exe` either: the shim's own program, run."""
+        shim = _install_shim(self.root, "claude-native.cmd")
+        with mock.patch.object(os, "name", "nt"), self._with_node():
+            argv, note = executor_module._launch_argv([str(shim), "-p", "--json-schema", "{}"])
+        self.assertTrue(argv[0].endswith(os.path.join("bin", "claude.exe")))
+        self.assertEqual(argv[1:], ["-p", "--json-schema", "{}"])
+        self.assertIn("via=program", note)
+        self.assertNotIn("via=cmd.exe", note)
+
+    def test_a_native_shim_needs_no_node_at_all(self):
+        shim = _install_shim(self.root, "claude-native.cmd")
+        with mock.patch.object(os, "name", "nt"), mock.patch.object(
+            executor_module.shutil, "which", return_value=None
+        ):
+            argv, note = executor_module._launch_argv([str(shim), "-p"])
+        self.assertTrue(argv[0].endswith("claude.exe"))
+        self.assertIn("via=program", note)
 
     def test_no_node_on_path_falls_back_to_the_shim_and_says_why(self):
         shim = _install_shim(self.root, "claude.cmd")
@@ -260,7 +299,7 @@ class LaunchArgvTest(unittest.TestCase):
         shim.rename(upper)
         with mock.patch.object(os, "name", "nt"), self._with_node():
             argv, note = executor_module._launch_argv([str(upper), "-p"])
-        self.assertEqual(Path(argv[0]).name, "node")
+        self.assertTrue(Path(argv[0]).name.lower().startswith("node"), argv[0])
         self.assertIn("via=node", note)
 
     def test_the_launch_note_is_said_once_per_process(self):

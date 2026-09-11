@@ -58,11 +58,22 @@ schema, `anyOf` keeps working and `oneOf`/`if`-`then` become a 400.
 demands exactly one match, so two identical branches would refuse a correct answer. `anyOf` cannot
 develop that fault.
 
-### Parse the shim; never guess the path
+### The top-level `type`, which only a real run could teach
+
+`anyOf` alone is valid JSON Schema and Ajv is happy with it. The API is not: the document becomes a
+tool's `input_schema`, and `400 tools.0.custom.input_schema.type: Field required` was the answer on
+every operating system. `type: "object"` now sits above the `anyOf` as well as inside every branch.
+The local measurement (a recording server) could show what the CLI *sends*; only the acceptance run
+could show what the API *accepts*, which is why the run is the gate and not a formality.
+
+### Parse the shim; never guess the path -- and launch what it runs, JavaScript or not
 
 `node_modules\@anthropic-ai\claude-code\cli.js` is knowable from the package name, and hard-coding
-it would work today on one host and be a lie about the other. npm writes the path into the shim; the
-shim is on disk; reading it is both shorter and true. The parser only accepts a **quoted** token
+it would work today on one host and be a lie about the other -- and it would have been a lie about
+*this* one: `claude`'s npm package installs `bin/claude.exe`, a native launcher, so its shim names
+no JavaScript at all. npm writes the real path into the shim; the shim is on disk; reading it is
+both shorter and true. The parser therefore reads the shim's **launch line** (the one carrying
+`%*`) and handles both of npm's shapes: `node` plus a `.js`, or an `.exe` run directly. The parser only accepts a **quoted** token
 ending in `.js`/`.cjs`/`.mjs` (the generated shim also contains `SET PATHEXT=%PATHEXT:;.JS;=;%`,
 which a looser parser reads as a file name), expands `%dp0%`/`%~dp0` and nothing else, and returns
 a path only if it is a file on this machine.

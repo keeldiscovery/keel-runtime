@@ -350,6 +350,11 @@ class ClaudeCodeExecutorTest(_ExecutorTestBase):
         # branch requiring the key that outcome must carry. Still asserted in full, and in
         # the contract's own outcome order.
         expected_schema = {
+            # `type` at the top as well as inside each branch: the CLI passes this document
+            # through as the `StructuredOutput` tool's `input_schema`, and the API refuses a
+            # tool schema without one (`400 tools.0.custom.input_schema.type: Field required`,
+            # acceptance run 34613046096).
+            "type": "object",
             "anyOf": [
                 {
                     "type": "object",
@@ -903,6 +908,17 @@ class EnvelopeSchemaTest(unittest.TestCase):
                 except InvalidResponse:
                     runtime_accepts = False
                 self.assertEqual(_matches_envelope(answer, schema), runtime_accepts)
+
+    def test_the_top_level_names_a_type_because_the_api_requires_one(self):
+        """Redundant as JSON Schema, load-bearing in practice: Claude Code hands this document
+        to the API as the `StructuredOutput` tool's `input_schema`, and a tool schema with no
+        `type` is a 400 -- `tools.0.custom.input_schema.type: Field required`, measured on all
+        three operating systems in acceptance run 34613046096.
+        """
+        schema = self._schema()
+        self.assertEqual(schema["type"], "object")
+        for branch in schema["anyOf"]:
+            self.assertEqual(branch["type"], "object")
 
     def test_one_allowed_outcome_is_one_shape_not_an_anyof_of_one(self):
         schema = self._schema({"allowed_outcomes": ["COMPLETED"], "completed_result_schema": {}})
