@@ -269,6 +269,19 @@ _COPILOT_ENV_PREFIXES = ("COPILOT_",)
 _COPILOT_ENV_EXACT = frozenset({"GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"})
 
 
+# A credential that must survive the host. Measured 2026-09-11: Claude Code strips
+# `CLAUDE_CODE_OAUTH_TOKEN` -- by that exact name, every other `CLAUDE_CODE_*` travels -- from
+# the shell it runs its tools in, and the Copilot CLI strips `COPILOT_GITHUB_TOKEN` the same way.
+# The runtime is started from inside such a shell (the skill's script), so a founder or a CI
+# whose only Claude credential is that token would hand the executor nothing. `KEEL_`-prefixed
+# twins are names no host strips; when one is set and the CLI's own name is absent, it is
+# handed to the CLI under the name the CLI reads. Nothing else about the allow-list changes.
+_CREDENTIAL_TWINS = (
+    ("KEEL_CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
+    ("KEEL_COPILOT_GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"),
+)
+
+
 def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> dict:
     """One allow-list mechanism, one per-executor argument pair (C-4).
 
@@ -284,6 +297,9 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
             env[key] = value
         elif any(key.startswith(prefix) for prefix in prefixes):
             env[key] = value
+    for twin, real in _CREDENTIAL_TWINS:
+        if not env.get(real) and os.environ.get(twin) and any(real.startswith(p) for p in prefixes):
+            env[real] = os.environ[twin]
     return env
 
 

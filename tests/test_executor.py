@@ -717,3 +717,36 @@ class ExecutorTimeoutWiringTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+# ------------------------------------------------------------- a credential that survives the host
+
+class CredentialTwinTests(unittest.TestCase):
+    """Measured 2026-09-11: Claude Code strips CLAUDE_CODE_OAUTH_TOKEN, and the Copilot CLI
+    COPILOT_GITHUB_TOKEN, from the shells their tools run in -- the shell the runtime is started
+    from. A KEEL_-prefixed twin survives and is handed to the CLI under its own name."""
+
+    def _env(self, **overrides):
+        import os
+        from unittest import mock
+        from keel_runtime import executor as ex
+        with mock.patch.dict(os.environ, overrides, clear=True):
+            return (ex._build_env(ex._CLAUDE_ENV_PREFIXES, ex._CLAUDE_ENV_EXACT),
+                    ex._build_env(ex._COPILOT_ENV_PREFIXES, ex._COPILOT_ENV_EXACT))
+
+    def test_the_twin_is_handed_to_the_claude_cli_under_its_own_name(self):
+        claude, copilot = self._env(PATH="/bin", KEEL_CLAUDE_CODE_OAUTH_TOKEN="tok")
+        self.assertEqual(claude.get("CLAUDE_CODE_OAUTH_TOKEN"), "tok")
+        self.assertNotIn("KEEL_CLAUDE_CODE_OAUTH_TOKEN", claude)
+        self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", copilot)
+
+    def test_the_real_name_wins_when_both_are_set(self):
+        claude, _ = self._env(PATH="/bin", KEEL_CLAUDE_CODE_OAUTH_TOKEN="twin",
+                              CLAUDE_CODE_OAUTH_TOKEN="real")
+        self.assertEqual(claude["CLAUDE_CODE_OAUTH_TOKEN"], "real")
+
+    def test_the_copilot_twin_reaches_only_the_copilot_cli(self):
+        claude, copilot = self._env(PATH="/bin", KEEL_COPILOT_GITHUB_TOKEN="tok")
+        self.assertEqual(copilot.get("COPILOT_GITHUB_TOKEN"), "tok")
+        self.assertNotIn("COPILOT_GITHUB_TOKEN", claude)
