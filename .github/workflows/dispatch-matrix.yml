@@ -1,0 +1,82 @@
+# Tell keel-e2e-eval that keel-runtime changed.
+# keel-cloud canon/designs/e2e-matrix-design.md §6.2, table row two.
+#
+# WHAT A CELL WILL ACTUALLY BE RUNNING. The cells install the plugin FROM THE PUBLIC MARKETPLACE,
+# never from a checkout (decision 5: "a cell that used a checkout would test a plugin no founder
+# has"). The plugin carries its own copy of this runtime -- spec 003 of keel-connect-skill -- so a
+# change here reaches the matrix only after keel-connect-skill has run `make runtime` and
+# `make release`. Until it has, a run fired by this dispatch measures the PREVIOUS runtime, which
+# is a true measurement of what founders have and not the one this commit is about.
+#
+# keel-connect-skill's spec 005-release-on-runtime-change is the workflow that closes that gap (it
+# runs `make runtime` + `make release` on a dispatch from here). IT IS NOT BUILT YET, and this file
+# deliberately does not pretend otherwise: it dispatches the matrix, and nothing else.
+#
+# WHAT IT DOES: on a push to master, POST `{event_type: "matrix", client_payload: {repo, sha,
+# why}}` to keeldiscovery/keel-e2e-eval. That is all. It never deploys, never reads a cloud, and
+# never decides what runs -- the referee owns the schedule (invariant M9), debounces five merges in
+# ten minutes into one run through its own `concurrency: matrix-<repo>` (§6.2), and chooses the set.
+#
+# THE SECRET: KEEL_DISPATCH_TOKEN, a fine-grained token the founder creates once whose only
+# permission is on keeldiscovery/keel-e2e-eval. Without it this workflow is a no-op that says so --
+# not a red check (see the first step).
+#
+# THE OVERRIDE: `[skip e2e]` anywhere in the merge commit's message (§6.2's last row, decision 6).
+
+name: dispatch-matrix
+
+on:
+  push:
+    branches: [master]
+
+# Nothing in this repository is read or written; the only thing this workflow touches is
+# keel-e2e-eval's REST API, with a token that can do that one thing.
+permissions: {}
+
+jobs:
+  dispatch:
+    name: tell the referee
+    # §6.2's last row: the founder's own override for the cases a path filter cannot judge.
+    if: ${{ !contains(github.event.head_commit.message, '[skip e2e]') }}
+    runs-on: ubuntu-latest
+    env:
+      # `secrets` is readable in a job-level `env`, and `if:` on a step is not allowed to read
+      # `secrets` directly -- so the presence of the token becomes a plain boolean here, once.
+      HAVE_TOKEN: ${{ secrets.KEEL_DISPATCH_TOKEN != '' }}
+    steps:
+      # NO TOKEN IS A NO-OP, NOT A RED CHECK. The founder creates KEEL_DISPATCH_TOKEN when the
+      # twin exists (design §13 step 5); until then every merge to master prints this one line and
+      # costs nothing. A failure here would be this repository going red for something that is not
+      # about this repository.
+      - name: No dispatch token yet
+        if: env.HAVE_TOKEN != 'true'
+        run: |
+          echo "::notice::Nothing dispatched: the secret KEEL_DISPATCH_TOKEN is not set in this repository."
+          echo "::notice::It is a fine-grained token whose only permission is Contents: read-write (or Metadata + Dispatch) on keeldiscovery/keel-e2e-eval, so that this workflow may POST /dispatches to it. Settings -> Secrets and variables -> Actions -> Secrets."
+
+      - name: POST repository_dispatch `matrix` to keeldiscovery/keel-e2e-eval
+        if: env.HAVE_TOKEN == 'true'
+        env:
+          TOKEN: ${{ secrets.KEEL_DISPATCH_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          WHY: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          # The commit message reaches the payload through the environment and jq, never through
+          # the shell: a merge commit titled `"; rm -rf /` is data.
+          payload=$(jq -nc --arg repo "$REPO" --arg sha "$SHA" \
+                      --arg why "push to master: $(printf '%s' "$WHY" | head -1)" \
+                      '{event_type:"matrix",client_payload:{repo:$repo,sha:$sha,why:$why}}')
+          code=$(curl -sS -o /tmp/dispatch.out -w '%{http_code}' -X POST \
+                   -H "Accept: application/vnd.github+json" \
+                   -H "Authorization: Bearer $TOKEN" \
+                   -H "X-GitHub-Api-Version: 2022-11-28" \
+                   https://api.github.com/repos/keeldiscovery/keel-e2e-eval/dispatches \
+                   -d "$payload")
+          if [ "$code" != "204" ]; then
+            echo "::error::keel-e2e-eval refused the dispatch ($code). Check that KEEL_DISPATCH_TOKEN still grants this repository the right to POST /dispatches on keeldiscovery/keel-e2e-eval."
+            cat /tmp/dispatch.out
+            exit 1
+          fi
+          echo "Dispatched \`matrix\` to keel-e2e-eval for $REPO@$SHA." >> "$GITHUB_STEP_SUMMARY"
