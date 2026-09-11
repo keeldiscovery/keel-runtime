@@ -409,7 +409,11 @@ jobs:
       - id: check
         shell: bash
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Claude runs on the founder's Max subscription first: KEEL_RUNTIME_CI_CLAUDE is a
+          # `claude setup-token` login, read by the CLI as CLAUDE_CODE_OAUTH_TOKEN. The console
+          # key is the fallback, passed only when the subscription token is absent.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE }}
+          ANTHROPIC_API_KEY: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE == '' && secrets.ANTHROPIC_API_KEY || '' }}
           # This repository's Copilot token is stored under the name KEEL_RUNTIME_CI_COPILOT,
           # not COPILOT_GITHUB_TOKEN -- mapped to the CLI's own env name here, the one place
           # that mapping needs to happen, since every other read of the secret below goes
@@ -421,7 +425,7 @@ jobs:
           else
             echo "copilot=false" >> "$GITHUB_OUTPUT"
           fi
-          if [[ -n "$ANTHROPIC_API_KEY" ]]; then
+          if [[ -n "$CLAUDE_CODE_OAUTH_TOKEN" || -n "$ANTHROPIC_API_KEY" ]]; then
             echo "claude=true" >> "$GITHUB_OUTPUT"
           else
             echo "claude=false" >> "$GITHUB_OUTPUT"
@@ -516,7 +520,8 @@ jobs:
       - name: 'claude -p "keel connect" against a closed port'
         if: needs.check-secrets.outputs.claude == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE }}
+          ANTHROPIC_API_KEY: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE == '' && secrets.ANTHROPIC_API_KEY || '' }}
           KEEL_BASE_URL: http://127.0.0.1:1
         run: |
           claude -p "keel connect" --output-format json \
@@ -638,8 +643,8 @@ jobs:
               'Ran `claude -p "keel connect"` against a closed port (`http://127.0.0.1:1`); '
               "see its step log above for the reply."
               if have_claude else
-              "Skipped `claude -p \"keel connect\"`: ANTHROPIC_API_KEY is not set on this "
-              "repository."
+              "Skipped `claude -p \"keel connect\"`: neither KEEL_RUNTIME_CI_CLAUDE nor "
+              "ANTHROPIC_API_KEY is set on this repository."
           )
           copilot_line = (
               'Ran `copilot -p "keel connect"` against a closed port, then sent a three-line '
@@ -669,7 +674,7 @@ jobs:
           {
             echo "### model-driven half: skipped"
             echo ""
-            echo "Neither ANTHROPIC_API_KEY nor KEEL_RUNTIME_CI_COPILOT (this repository's "\
+            echo "Neither KEEL_RUNTIME_CI_CLAUDE/ANTHROPIC_API_KEY nor KEEL_RUNTIME_CI_COPILOT (this repository's "\
                  "Copilot token, read as COPILOT_GITHUB_TOKEN) is set -- the model-driven half "\
                  "of B2 is skipped rather than run without them, per design §10.2's T-5 (no "\
                  "secret is baked in; a missing one means the job that needs it does not run, "\
