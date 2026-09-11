@@ -124,7 +124,7 @@ the process never got past device authorization.
 ## Saying which runtime this is
 
 ```sh
-python3 -m keel_runtime --version    # keel-runtime 0.1.0 (Keel Cloud https://app.keeldiscovery.com)
+python3 -m keel_runtime --version    # keel-runtime 0.2.1 (Keel Cloud https://keeldiscovery.com)
 python3 -m keel_runtime --license    # the SPDX id, the copyright line and the full text's URL
 ```
 
@@ -203,9 +203,9 @@ may name the base URL:
 `config.py`'s `CLOUD_BASE_URL` is the **last** term of the base-URL chain, so a fresh install
 reaches the real Keel with no configuration at all, and any flag, environment variable or config
 file still outranks it. **It is set**, as of design §13 step 8: keel-cloud is deployed at
-`https://app.keeldiscovery.com`, so `keel connect` with nothing else configured reaches that Keel,
+`https://keeldiscovery.com`, so `keel connect` with nothing else configured reaches that Keel,
 `keel status` reports `environment: "cloud"`, and the derived home is
-`~/.keel/app.keeldiscovery.com/`. Only when the constant is cleared back to empty does a missing
+`~/.keel/keeldiscovery.com/`. Only when the constant is cleared back to empty does a missing
 `base_url` after every other source is checked exit with a one-line remedy rather than a
 traceback — and `keel status` still answers, still exits 0, with `environment: null`, in that case.
 

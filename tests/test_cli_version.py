@@ -45,7 +45,7 @@ class VersionFlagTest(unittest.TestCase):
         self.assertEqual(len(lines), 1, msg=repr(result.stdout))
         self.assertEqual(
             lines[0],
-            f"keel-runtime {keel_runtime.__version__} (Keel Cloud https://app.keeldiscovery.com)",
+            f"keel-runtime {keel_runtime.__version__} (Keel Cloud https://keeldiscovery.com)",
         )
 
     def test_the_version_is_a_semver_looking_string(self):
@@ -79,9 +79,9 @@ class VersionFlagTest(unittest.TestCase):
         """Since design §13 step 8 (spec 034, live 2026-09-09), the constant is no longer the
         empty placeholder -- it names keel-cloud's real, deployed address.
         """
-        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://keeldiscovery.com")
         source = (_RUNTIME_DIR / "keel_runtime" / "config.py").read_text(encoding="utf-8")
-        self.assertIn('CLOUD_BASE_URL = "https://app.keeldiscovery.com"', source)
+        self.assertIn('CLOUD_BASE_URL = "https://keeldiscovery.com"', source)
         self.assertIn("step 8", source)
 
 

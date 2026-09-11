@@ -73,12 +73,12 @@ class HostSlugTest(unittest.TestCase):
             self.assertEqual(config_module.host_slug("https://cloud.keel.example"),
                              "cloud.keel.example")
 
-    def test_the_real_cloud_default_slugs_to_app_keeldiscovery_com(self):
+    def test_the_real_cloud_default_slugs_to_keeldiscovery_com(self):
         """Since design §13 step 8: no mocking, the constant's real value."""
-        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://keeldiscovery.com")
         self.assertEqual(config_module.environment_for(config_module.CLOUD_BASE_URL), "cloud")
         self.assertEqual(
-            config_module.host_slug(config_module.CLOUD_BASE_URL), "app.keeldiscovery.com"
+            config_module.host_slug(config_module.CLOUD_BASE_URL), "keeldiscovery.com"
         )
 
     def test_none_is_not_an_address(self):
@@ -162,8 +162,8 @@ class DerivedHomeTest(unittest.TestCase):
         rather than falling back to `~/.keel` itself.
         """
         resolved = config_module.load_status_config(self._args())
-        self.assertEqual(resolved.home, self.fake_home / ".keel" / "app.keeldiscovery.com")
-        self.assertEqual(resolved.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(resolved.home, self.fake_home / ".keel" / "keeldiscovery.com")
+        self.assertEqual(resolved.base_url, "https://keeldiscovery.com")
         self.assertEqual(resolved.environment, "cloud")
 
     def test_nothing_resolves_at_all_and_the_home_is_todays_root_when_the_default_is_unset(self):

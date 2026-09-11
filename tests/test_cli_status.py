@@ -71,7 +71,7 @@ class CliStatusTest(unittest.TestCase):
             {
                 "running": False,
                 "home": str(self.home),
-                "base_url": "https://app.keeldiscovery.com",
+                "base_url": "https://keeldiscovery.com",
                 "environment": "cloud",
                 "executor": "claude",
                 "executor_on_path": payload["executor_on_path"],
@@ -181,9 +181,9 @@ class StatusEnvironmentKeysTest(unittest.TestCase):
     def test_nothing_configured_at_all_reaches_the_cloud_default(self):
         payload = self._payload()
         self.assertEqual(payload["running"], False)
-        self.assertEqual(payload["base_url"], "https://app.keeldiscovery.com")
+        self.assertEqual(payload["base_url"], "https://keeldiscovery.com")
         self.assertEqual(payload["environment"], "cloud")
-        self.assertEqual(payload["home"], str(self.fake_home / ".keel" / "app.keeldiscovery.com"))
+        self.assertEqual(payload["home"], str(self.fake_home / ".keel" / "keeldiscovery.com"))
 
     def test_a_local_base_url_names_its_address_and_derives_its_home(self):
         payload = self._payload(KEEL_BASE_URL="http://localhost:18081")
