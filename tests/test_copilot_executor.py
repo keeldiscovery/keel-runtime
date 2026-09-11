@@ -395,6 +395,44 @@ class TheMalformedResultTest(_FakeCopilotCase):
         self.assertIn("not JSON", recovery_prompt)
         self.assertTrue(self.executor.last_envelope["recovery_pass"])
 
+    def test_a_completed_answer_with_no_result_names_the_missing_key_in_the_recovery(self):
+        """spec 006 FR-002, on the path where the runtime's own validator writes the refusal.
+
+        This is the staging failure in miniature (keel-e2e-eval runs 34602329238 and
+        34607630153): the model answered `{"outcome": "COMPLETED"}` and nothing else. The
+        recovery prompt names `result` rather than telling the model to cut a field in half.
+        """
+        events = [
+            json.loads(line) for line in _fixture("completed.jsonl").splitlines() if line.strip()
+        ]
+        for event in events:
+            if event.get("type") == "assistant.message" and event["data"].get("phase") == "final_answer":
+                event["data"]["content"] = json.dumps({"outcome": "COMPLETED"})
+        stdout = "".join(json.dumps(e) + "\n" for e in events)
+        self._queue_stdout(stdout, _fixture("completed.jsonl"))
+
+        answer = self.executor.execute(_request())
+        self.assertEqual(answer["outcome"], "COMPLETED")
+
+        recovery_prompt = self._prompt_of(self._records()[1])
+        self.assertIn("COMPLETED requires a 'result'", recovery_prompt)
+        self.assertIn("carried no 'result'", recovery_prompt)
+        self.assertNotIn("cut the named field", recovery_prompt)
+
+    def test_the_schema_in_the_prompt_requires_the_key_each_outcome_must_carry(self):
+        """spec 006 FR-001 reaches this host too: Copilot is asked for the same envelope, in
+        prose, that Claude Code is handed as `--json-schema`.
+        """
+        self._queue_stdout(_fixture("completed.jsonl"))
+        self.executor.execute(_request())
+        prompt = self._prompt_of(self._record())
+        self.assertIn(
+            json.dumps(
+                executor_module._build_envelope_schema(_CONTRACT_COMPLETED), indent=2
+            ),
+            prompt,
+        )
+
     def test_an_answer_outside_the_contract_is_refused_by_the_validator(self):
         events = [
             json.loads(line) for line in _fixture("completed.jsonl").splitlines() if line.strip()
