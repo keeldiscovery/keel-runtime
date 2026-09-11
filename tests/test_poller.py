@@ -360,5 +360,51 @@ class ScriptedExecutorThroughPollerTest(unittest.TestCase):
         self.assertFalse((self.config.home / "jobs").exists())
 
 
+
+class BusyHeartbeatTest(unittest.TestCase):
+    """spec `007-launcher-version`: while a job is being worked the heartbeat names it, and the
+    write after the job clears it -- so a newer skill's "keel connect" waits for an idle runtime
+    rather than replacing one mid-job."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_the_heartbeat_names_the_job_while_it_runs_and_not_after(self):
+        from keel_runtime import heartbeat as heartbeat_module
+        from keel_runtime.poller import run_loop
+
+        seen = []
+
+        class _Executor(_FakeExecutor):
+            def execute(inner, request):
+                seen.append(heartbeat_module.read(self.home).job_id)
+                return super().execute(request)
+
+        class _Client(_FakeClient):
+            def __init__(inner):
+                super().__init__()
+                inner.calls = 0
+
+            def poll(inner, agent_session_id, access_token):
+                inner.calls += 1
+                if inner.calls == 1:
+                    return {"type": "JOB", "job": _job("job-7")}
+                raise KeyboardInterrupt
+
+        config = SimpleNamespace(home=self.home, base_url="https://cloud.keel.example",
+                                 launcher_version="1.1.0")
+        state = SimpleNamespace(agent_session_id="s-1", access_token="tok")
+        run_loop(_Client(), state, _Executor(response={"outcome": "COMPLETED", "result": {"x": "ok"}}),
+                 store=None, config=config)
+        self.assertEqual(seen, ["job-7"])
+        after = heartbeat_module.read(self.home)
+        self.assertIsNone(after.job_id)
+        self.assertEqual(after.launcher_version, "1.1.0")
+
+
 if __name__ == "__main__":
     unittest.main()

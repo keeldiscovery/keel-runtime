@@ -33,6 +33,27 @@ class HeartbeatWriteReadTest(unittest.TestCase):
         read_back = heartbeat.read(self.home)
         self.assertEqual(read_back, hb)
 
+    def test_round_trip_preserves_the_launcher_version_and_the_job_in_hand(self):
+        """spec `007-launcher-version`: the two optional fields survive a write and a read, and a
+        heartbeat written before the spec -- no such keys at all -- reads back as an unknown
+        launcher, idle."""
+        hb = heartbeat.Heartbeat(
+            pid=12345,
+            agent_session_id="5b2e2f0a-9c3b-4b7e-8f3a-1e6c9b7a2d10",
+            base_url="https://cloud.keel.example",
+            last_heartbeat_at="2026-09-02T13:04:11.482Z",
+            launcher_version="1.1.0",
+            job_id="job-7",
+        )
+        heartbeat.write(self.home, hb)
+        self.assertEqual(heartbeat.read(self.home), hb)
+        heartbeat.path(self.home).write_text(json.dumps({
+            "pid": 12345, "agent_session_id": None, "base_url": "https://cloud.keel.example",
+            "last_heartbeat_at": "2026-09-02T13:04:11.482Z"}))
+        old = heartbeat.read(self.home)
+        self.assertIsNone(old.launcher_version)
+        self.assertIsNone(old.job_id)
+
     def test_write_uses_the_documented_path(self):
         hb = heartbeat.Heartbeat(1, "a", "http://x", "2026-09-02T00:00:00.000Z")
         heartbeat.write(self.home, hb)

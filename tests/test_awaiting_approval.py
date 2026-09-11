@@ -179,6 +179,8 @@ class StatusAwaitingApprovalTest(unittest.TestCase):
                 "base_url": "http://localhost:18081",
                 "last_heartbeat_at": payload["last_heartbeat_at"],
                 "connected": False,
+                "launcher_version": None,
+                "busy": False,
                 "home": str(self.home),
                 "environment": "localhost:18081",
                 "executor": "claude",
