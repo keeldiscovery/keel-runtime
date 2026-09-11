@@ -272,8 +272,8 @@ jobs:
       # reaches Keel Cloud over the network (DNS, TLS, the device-authorization request itself),
       # not just that it fails predictably against nothing. Device authorization needs no secret
       # (it is the public, unauthenticated first half of the flow) and nothing here is approved,
-      # so no agent session and no credential is ever created on app.keeldiscovery.com.
-      - name: "A real device code from Keel Cloud (KEEL_BASE_URL=https://app.keeldiscovery.com)"
+      # so no agent session and no credential is ever created on keeldiscovery.com.
+      - name: "A real device code from Keel Cloud (KEEL_BASE_URL=https://keeldiscovery.com)"
         shell: python
         run: |
           import json
@@ -285,7 +285,7 @@ jobs:
 
           workspace = os.environ["GITHUB_WORKSPACE"]
           script = os.path.join(workspace, "keel-connect-skill", "scripts", "keel_connect_check.py")
-          cloud_base_url = "https://app.keeldiscovery.com"
+          cloud_base_url = "https://keeldiscovery.com"
 
           with tempfile.TemporaryDirectory() as fake_home:
               env = dict(os.environ)

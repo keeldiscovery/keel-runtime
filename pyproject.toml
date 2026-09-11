@@ -1,6 +1,6 @@
 [project]
 name = "keel-runtime"
-version = "0.2.0"
+version = "0.2.1"
 description = "Keel's local runtime: authorizes a device against Keel Cloud, long-polls for inference jobs, and executes them locally (spec 020 FR-024..028)."
 requires-python = ">=3.9"
 # Core has no required dependencies -- the standard library alone (spec FR-025). Optional

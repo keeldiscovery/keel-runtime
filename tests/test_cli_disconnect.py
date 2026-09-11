@@ -465,7 +465,7 @@ class CliDisconnectTest(unittest.TestCase):
         for key in ("outcome", "home", "base_url", "environment"):
             self.assertIn(key, payload)
         self.assertEqual(payload["home"], str(self.home))
-        self.assertEqual(payload["base_url"], "https://app.keeldiscovery.com")
+        self.assertEqual(payload["base_url"], "https://keeldiscovery.com")
         self.assertEqual(payload["environment"], "cloud")
         # `status`'s two executor keys are deliberately absent: no executor takes part in a
         # disconnect (FR-008).

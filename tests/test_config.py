@@ -268,7 +268,7 @@ class CloudDefaultTest(unittest.TestCase):
 
     def test_the_constant_is_set_to_the_real_cloud_address(self):
         """§13 step 8: keel-cloud is deployed and this is its address."""
-        self.assertEqual(config_module.CLOUD_BASE_URL, "https://app.keeldiscovery.com")
+        self.assertEqual(config_module.CLOUD_BASE_URL, "https://keeldiscovery.com")
 
     def test_an_empty_constant_keeps_todays_exit_and_its_remedy(self):
         with mock.patch.object(config_module, "CLOUD_BASE_URL", ""):
@@ -281,7 +281,7 @@ class CloudDefaultTest(unittest.TestCase):
 
     def test_the_real_constant_is_used_instead_of_exiting(self):
         config = config_module.load(self._args())
-        self.assertEqual(config.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(config.base_url, "https://keeldiscovery.com")
         self.assertEqual(config.environment, "cloud")
 
     def test_a_constant_with_a_value_is_used_instead_of_exiting(self):
@@ -316,7 +316,7 @@ class CloudDefaultTest(unittest.TestCase):
 
     def test_status_reaches_the_cloud_default_when_nothing_else_resolves(self):
         status = config_module.load_status_config(self._args())
-        self.assertEqual(status.base_url, "https://app.keeldiscovery.com")
+        self.assertEqual(status.base_url, "https://keeldiscovery.com")
         self.assertEqual(status.environment, "cloud")
 
 
