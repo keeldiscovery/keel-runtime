@@ -46,17 +46,20 @@ new fixture files.
 
 ## Two decisions worth writing down
 
-### `anyOf`, and why not `oneOf` or `if`/`then`
+### `if`/`then`, and why not `anyOf`, `oneOf` or `allOf`
 
-Measured rather than assumed (spec's *Measurement notes*). All three forms travel to the CLI
-verbatim and all three are honoured by the Ajv the CLI validates with, so the tie is broken by what
-survives a change on the other side: `anyOf` is in Anthropic's documented structured-output subset
-and the other two are not. If a future Claude Code hands this document to the API as a strict tool
-schema, `anyOf` keeps working and `oneOf`/`if`-`then` become a 400.
+Measured rather than assumed, in three steps (spec's *Measurement notes*). A local recording server
+showed that Claude Code passes the `--json-schema` document through **verbatim** as the
+`StructuredOutput` tool's `input_schema` and that the CLI's own Ajv is what enforces it -- and Ajv
+honours every conditional form, so the local measurement could not choose between them. Two
+acceptance runs chose: the API refuses a tool schema with no `type`, and then refuses `oneOf`,
+`allOf` and `anyOf` **at the top level** -- which is the only level a rule relating `outcome` to
+`result` can live at.
 
-`oneOf` would also be *wrong* in a way `anyOf` is not, the day two outcomes share a shape: `oneOf`
-demands exactly one match, so two identical branches would refuse a correct answer. `anyOf` cannot
-develop that fault.
+`if`/`then`/`else` is what is left, and it is the better fit anyway: Ajv's message for a missing
+key is `must have required property 'result'`, which is precisely what `_missing_key` reads to
+name the key in the recovery prompt. A `not`/`anyOf` spelling would have produced
+`must NOT be valid`, which tells the model nothing.
 
 ### The top-level `type`, which only a real run could teach
 

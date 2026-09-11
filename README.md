@@ -295,17 +295,17 @@ founder and the referee should both see *why*, not only *what*.
   `structured_output`, never scraped from stdout. **Requires Claude Code ≥ 2.1.259.** An
   older CLI without `--json-schema` exits non-zero and the job fails `LLM_UNAVAILABLE`.
 
-  **The `--json-schema` envelope is one branch per allowed outcome** (`anyOf` of them under a
-  top-level `type: "object"` -- the CLI passes the document through as a tool's `input_schema`,
-  and the API refuses one without a `type`), each
-  branch requiring the key that outcome must carry: a `COMPLETED` branch with `result`, a
-  `NEEDS_INPUT` branch with `questions`, `additionalProperties: false` on both. It used to be one
-  flat object with both keys optional, and staging measured what that costs -- the model answered
+  **The `--json-schema` envelope now carries an `if`/`then` chain**: a `COMPLETED` answer must
+  have a `result`, a `NEEDS_INPUT` answer must have `questions`, on top of the flat
+  `{outcome, questions?, result?}` object with `additionalProperties: false`. Both keys used to
+  be simply optional, and staging measured what that costs -- the model answered
   `{"outcome": "COMPLETED"}` with no `result`, the CLI accepted it because the schema permitted
-  it, and `response_validator` refused it afterwards, too late for the model to answer again. The
-  schema now says exactly what the runtime checks. (`anyOf` rather than `oneOf` or `if`/`then`
-  because it is the only one of the three in Anthropic's own structured-output subset; all three
-  are honoured by the Ajv the CLI validates with. Measured 2026-09-11, Claude Code 2.1.268.)
+  it, and `response_validator` refused it afterwards, too late for the model to answer again.
+  The schema now says exactly what the runtime checks. (`if`/`then` rather than `anyOf`,
+  `oneOf` or `allOf` because the CLI passes this document through as a tool's `input_schema`,
+  where the API refuses all three combinators at the top level -- and refuses a schema with no
+  `type` at all. Both refusals were measured in CI, not guessed; `keel_runtime/executor.py`'s
+  `_build_envelope_schema` carries the run numbers.)
 
   When the CLI's own turn budget runs out (`result.subtype == "error_max_turns"`) and a
   refused attempt was seen along the way (a `user` event's `tool_result` beginning

@@ -89,3 +89,22 @@ paid model call from this machine -- the acceptance run is the proof.
       windows-latest failures (`node.EXE` != `node` -- `shutil.which` returns the extension it
       resolved) fixed in the assertion, not in the code.
 - [x] T018 Merge again, push, and watch the acceptance run that replaces 34613046096.
+
+## Phase 6: What *that* run corrected
+
+- [x] T019 **The launch fix is proven.** Run 34613957652, windows-latest:
+      `KEEL_LAUNCH via=program program=C:\npm\prefix\node_modules\@anthropic-ai\claude-code\bin
+      \claude.exe shim=C:\npm\prefix\claude.CMD`. No `cmd.exe` in the chain, on the host this
+      feature exists for.
+- [x] T020 **A tool schema may carry no top-level combinator.** Same run, all three operating
+      systems: `400 tools.0.custom.input_schema: input_schema does not support oneOf, allOf, or
+      anyOf at the top level`. The envelope keeps its flat `properties` and carries an
+      `if`/`then`/`else` chain instead -- the one conditional form that message does not name,
+      and the one whose Ajv failure text (`must have required property 'result'`) is what
+      `_missing_key` already reads. Verified against a real JSON Schema validator locally.
+- [x] T021 **A shim's own arguments travel with its program.** The `exec` shape dropped them,
+      which broke twenty tests on windows-latest (`tests/_fake_cli.py` writes
+      `"...python.exe" "%~dp0claude.py" %*`, and the interpreter was launched with the CLI's
+      flags and no script). The parser now reads the whole launch line -- what comes before the
+      program is `node`'s, what comes after is the program's.
+- [x] T022 Merge again, push, watch.
