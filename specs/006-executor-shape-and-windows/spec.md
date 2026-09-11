@@ -115,15 +115,16 @@ path nothing had ever run.
 
 ### Functional Requirements
 
-- **FR-001**: `_build_envelope_schema` MUST build one branch per allowed outcome and combine them
-  with `anyOf` under a top-level `type: "object"`; each branch names its outcome as a `const`,
-  requires the key that outcome must carry (`result` for `COMPLETED`, `questions` for
-  `NEEDS_INPUT`), and sets `additionalProperties: false`. An outcome the runtime has no rule for
-  requires the outcome alone. A contract naming no outcome at all keeps the flat envelope
-  (nothing to branch on). **The top-level `type` is not decoration**: the CLI hands this document
-  to the API as the `StructuredOutput` tool's `input_schema`, and a tool schema without one is
-  `400 tools.0.custom.input_schema.type: Field required` -- measured on all three operating
-  systems in acceptance run 34613046096, where a bare `anyOf` failed every job it touched.
+- **FR-001**: `_build_envelope_schema` MUST carry, on top of the `{outcome, questions?, result?}`
+  object it always built, an `if`/`then`/`else` chain requiring the key each allowed outcome must
+  have (`result` for `COMPLETED`, `questions` for `NEEDS_INPUT`). An outcome the runtime has no
+  rule for requires the outcome alone. A contract naming no outcome at all carries no conditional.
+  **The shape is forced by the API, not chosen**: the CLI hands this document to the API as the
+  `StructuredOutput` tool's `input_schema`, where a schema with no `type` is
+  `400 tools.0.custom.input_schema.type: Field required` (acceptance run 34613046096) and a
+  top-level combinator is `400 ... input_schema does not support oneOf, allOf, or anyOf at the top
+  level` (acceptance run 34613957652). `if`/`then` is what is left, and its Ajv failure message --
+  `must have required property 'result'` -- is exactly what FR-002 reads.
 - **FR-002**: when a refusal says a key is missing -- Ajv's `must have required property 'x'`, or
   `response_validator`'s own `COMPLETED requires a 'result'` / `NEEDS_INPUT requires a non-empty
   questions[] array` -- the recovery prompt MUST name that key and ask for it. Every other refusal
@@ -192,7 +193,7 @@ told us:
 
 * `API Error: 400 tools.0.custom.input_schema.type: Field required` on all three operating
   systems. The `anyOf` document is passed straight through as a *tool schema*, and the API
-  requires `type` on one. Adding `type: "object"` above the `anyOf` is the whole fix (FR-001).
+  requires `type` on one.
 * `KEEL_LAUNCH via=cmd.exe shim=C:\npm\prefix\claude.CMD -- no JavaScript entry point could be
   read out of this shim` on windows-latest. `@anthropic-ai/claude-code`'s npm package installs a
   **native launcher** (`npm view ... bin` -> `{claude: 'bin/claude.exe'}`, 2.1.268), so its shim
@@ -202,5 +203,18 @@ told us:
   shim=C:\npm\prefix\copilot.CMD`, and its three-line prompt step passed on windows-latest.
   The parser now handles both of npm's shapes (FR-003).
 
-Both corrections are in this feature's second commit, and the acceptance run after it is the
-proof that replaces this one.
+**And what the second run corrected.** Run 34613957652, with the `type` added and the shim parser
+widened, moved both failures forward exactly one step:
+
+* windows-latest printed
+  `KEEL_LAUNCH via=program program=C:\npm\prefix\node_modules\@anthropic-ai\claude-code\bin\claude.exe
+  shim=C:\npm\prefix\claude.CMD` -- **the launch fix works on the host it was written for**, with
+  no `cmd.exe` in the chain.
+* all three operating systems then failed on the schema again, one layer down:
+  `400 tools.0.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at the top
+  level`. A tool schema may not carry any of the three combinators where a cross-field rule has to
+  live, so the envelope carries an `if`/`then`/`else` chain instead -- the one conditional form the
+  API's own message does not name, and the one whose Ajv failure text names the missing key.
+
+Each run bought one measurement that no local test could have produced, which is what an
+acceptance gate is for.

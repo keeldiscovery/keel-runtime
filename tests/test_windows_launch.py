@@ -134,8 +134,9 @@ class ShimParsingTest(unittest.TestCase):
 
     def test_the_claude_shim_names_its_cli_js(self):
         shim = _install_shim(self.root, "claude.cmd")
-        kind, entry, node_args = executor_module._cmd_shim_launch(str(shim))
+        kind, entry, node_args, after = executor_module._cmd_shim_launch(str(shim))
         self.assertEqual(kind, "node")
+        self.assertEqual(after, [])
         self.assertEqual(
             Path(entry).resolve(),
             (self.root / "node_modules/@anthropic-ai/claude-code/cli.js").resolve(),
@@ -148,7 +149,7 @@ class ShimParsingTest(unittest.TestCase):
         starting it differently from the way its own installer does.
         """
         shim = _install_shim(self.root, "copilot.cmd")
-        _, entry, node_args = executor_module._cmd_shim_launch(str(shim))
+        _, entry, node_args, _after = executor_module._cmd_shim_launch(str(shim))
         self.assertTrue(entry.endswith(os.path.join("@github", "copilot", "index.js")))
         self.assertEqual(node_args, ["--enable-source-maps"])
 
@@ -174,17 +175,48 @@ class ShimParsingTest(unittest.TestCase):
         `cmd.exe` -- on the very host it was written for.
         """
         shim = _install_shim(self.root, "claude-native.cmd")
-        kind, program, leading = executor_module._cmd_shim_launch(str(shim))
+        kind, program, before, after = executor_module._cmd_shim_launch(str(shim))
         self.assertEqual(kind, "exec")
         self.assertTrue(program.endswith(os.path.join("bin", "claude.exe")))
-        self.assertEqual(leading, [])
+        self.assertEqual((before, after), ([], []))
 
-    def test_a_shim_naming_neither_javascript_nor_an_executable_is_refused(self):
-        """`tests/_fake_cli.py`'s own shape: a `.py` behind a hand-written shim. Nothing here
-        can be launched without an interpreter this runtime has no business choosing.
+    def test_a_shim_naming_an_interpreter_this_machine_does_not_have_is_refused(self):
+        """`tests/_fake_cli.py`'s own shape, recorded: `"C:\\Python312\\python.exe"
+        "%~dp0fake-cli.py" %*`. That interpreter is not on this machine, so there is nothing to
+        launch and the shim is left to `cmd.exe`.
         """
         shim = _install_shim(self.root, "hand-written-python.cmd")
         self.assertIsNone(executor_module._cmd_shim_launch(str(shim)))
+
+    def test_an_interpreter_shim_carries_the_script_the_shim_named(self):
+        """The same shape with an interpreter that *is* here -- which is what a Windows runner
+        has for this repository's own fake CLIs. The script the shim names travels with it:
+        launching the interpreter with the CLI's flags and no script at all is how the first
+        version of this parser broke twenty tests on windows-latest.
+        """
+        interpreter = self.root / "python.exe"
+        interpreter.write_text("# stands in for a real interpreter\n", encoding="utf-8")
+        script = self.root / "fake-cli.py"
+        script.write_text("print('hi')\n", encoding="utf-8")
+        shim = self.root / "fake.cmd"
+        shim.write_text(
+            '@echo off\r\n"%s" "%%~dp0fake-cli.py" %%*\r\n' % interpreter, encoding="utf-8"
+        )
+
+        kind, program, before, after = executor_module._cmd_shim_launch(str(shim))
+        self.assertEqual(kind, "exec")
+        self.assertEqual(Path(program).resolve(), interpreter.resolve())
+        self.assertEqual(before, [])
+        self.assertEqual([Path(a).resolve() for a in after], [script.resolve()])
+
+        with mock.patch.object(os, "name", "nt"):
+            argv, note = executor_module._launch_argv([str(shim), "-p", "--tools", ""])
+        self.assertEqual(
+            [Path(argv[0]).resolve(), Path(argv[1]).resolve()],
+            [interpreter.resolve(), script.resolve()],
+        )
+        self.assertEqual(argv[2:], ["-p", "--tools", ""])
+        self.assertIn("via=program", note)
 
     def test_a_target_that_is_not_on_this_machine_is_not_returned(self):
         """A shim left behind by an uninstall names a `cli.js` that is gone. Launching `node`

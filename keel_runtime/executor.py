@@ -208,91 +208,85 @@ def build_prompt(request: InferenceRequest) -> str:
 _OUTCOME_REQUIRED_KEY = {"COMPLETED": "result", "NEEDS_INPUT": "questions"}
 
 
-def _envelope_branch(outcome: str, completed_result_schema: dict) -> dict:
-    """One allowed outcome's whole envelope shape: the outcome as a `const`, the key that
-    outcome must carry, and nothing else (`additionalProperties: false`).
+def _outcome_condition(outcome: str) -> dict:
+    return {"properties": {"outcome": {"const": outcome}}, "required": ["outcome"]}
 
-    An outcome this runtime has no rule for -- anything but `COMPLETED`/`NEEDS_INPUT` -- gets
-    a branch requiring the outcome alone, which is exactly as much as the contract said about
-    it. Inventing a requirement for it would be inventing a rule.
+
+def _conditional_requirements(allowed_outcomes) -> dict:
+    """The `if`/`then`/`else` chain that makes each outcome carry its own key, or `{}` when
+    no allowed outcome has a rule.
+
+    Nested rather than a list of `allOf` branches, and that is not a style choice -- see
+    `_build_envelope_schema` for the two measurements that ruled everything else out.
     """
-    properties = {"outcome": {"const": outcome}}
-    required = ["outcome"]
-    key = _OUTCOME_REQUIRED_KEY.get(outcome)
-    if key == "result":
-        properties["result"] = completed_result_schema
-        required.append("result")
-    elif key == "questions":
-        properties["questions"] = _QUESTIONS_SCHEMA
-        required.append("questions")
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
+    with_rules = [o for o in allowed_outcomes if o in _OUTCOME_REQUIRED_KEY]
+    if not with_rules:
+        return {}
+
+    chain: dict = {}
+    for outcome in reversed(with_rules):
+        node = {
+            "if": _outcome_condition(outcome),
+            "then": {"required": ["outcome", _OUTCOME_REQUIRED_KEY[outcome]]},
+        }
+        if chain:
+            node["else"] = chain
+        chain = node
+    return chain
 
 
 def _build_envelope_schema(response_contract: dict) -> dict:
-    """The `--json-schema` the CLI enforces: **one branch per allowed outcome**, `anyOf` of the
-    branches, built from the job's own `response_contract` (spec FR-001), each branch
-    `additionalProperties: false` so the CLI cannot pad the envelope with fields the contract
-    never named.
+    """The `--json-schema` the CLI enforces: the `{outcome, questions?, result?}` object built
+    from the job's own `response_contract` (spec FR-001), `additionalProperties: false` so the
+    CLI cannot pad the envelope with fields the contract never named -- **and an `if`/`then`
+    chain that makes each outcome carry the key that outcome must have.**
 
-    **The schema now says what the runtime checks.** Measured twice on staging (keel-e2e-eval
-    runs 34602329238 and 34607630153, the Ubuntu Claude cells): this function used to build one
-    flat object with `result` and `questions` both *optional*, so a model that answered
-    `{"outcome": "COMPLETED"}` and nothing else was **accepted by the CLI** -- the schema it had
-    been handed permitted exactly that -- and then refused by `validate_response` afterwards with
-    `COMPLETED requires a 'result'`. The one recovery pass did not land and the job failed. A
-    refusal the model can still answer is worth more than a refusal delivered after the model has
-    gone, so the requirement moved into the schema the model is actually held to.
+    **Why the conditional is there at all.** Measured twice on staging (keel-e2e-eval runs
+    34602329238 and 34607630153, the Ubuntu Claude cells): with `result` and `questions` merely
+    *optional*, a model that answered `{"outcome": "COMPLETED"}` and nothing else was **accepted
+    by the CLI** -- the schema it had been handed permitted exactly that -- and then refused by
+    `validate_response` afterwards with `COMPLETED requires a 'result'`. The one recovery pass
+    did not land and the job failed. A refusal the model can still answer is worth more than a
+    refusal delivered after the model has gone.
 
-    **`anyOf`, not `oneOf` and not `if`/`then`.** Measured 2026-09-11 against Claude Code 2.1.268
-    by pointing `ANTHROPIC_BASE_URL` at a local recording server, so no model call was made:
-    `--json-schema <doc>` becomes a client-side tool named `StructuredOutput` whose
-    `input_schema` is `<doc>` **verbatim** -- no keyword is stripped, `strict: true` is not set,
-    and `output_config` carries only `effort`, so the API itself enforces nothing here. The
-    enforcement is the CLI's own **Ajv (JSON Schema 2020-12)** validation of that tool's input,
-    and a failure comes back to the model as the `Output does not match required schema`
-    `tool_result` `_last_schema_error` below already reads. All four candidate documents (the old
-    flat one, `allOf` of `if`/`then`, `anyOf`, `oneOf`) travelled verbatim, and Ajv honours all
-    three conditional forms alike -- so the choice is made by what survives a change elsewhere:
-    `anyOf` is the only one of the three inside Anthropic's own documented structured-output
-    subset, which is what would apply if a later CLI ever handed the schema to the API as a
-    strict tool schema or an `output_config.format`. `oneOf` and `if`/`then` are not supported
-    keywords there; `anyOf` is.
+    **Why `if`/`then` and not `anyOf`, `oneOf` or `allOf`.** Three measurements, in this order:
+
+    1. 2026-09-11, Claude Code 2.1.268, `ANTHROPIC_BASE_URL` pointed at a local recording server
+       (so no model call): `--json-schema <doc>` becomes a client-side tool named
+       `StructuredOutput` whose `input_schema` is `<doc>` **verbatim** -- no keyword stripped, no
+       `strict: true`, and `output_config` carrying only `effort`. The enforcement is the CLI's
+       own **Ajv (JSON Schema 2020-12)** validation of that tool's input, and a failure comes
+       back to the model as the `Output does not match required schema` `tool_result`
+       `_last_schema_error` below already reads. Ajv honours every conditional form, so the
+       local measurement could not choose between them.
+    2. Acceptance run 34613046096: a bare `anyOf` document is
+       `400 tools.0.custom.input_schema.type: Field required` -- the API wants a `type` on a tool
+       schema.
+    3. Acceptance run 34613957652, with that `type` added:
+       `400 tools.0.custom.input_schema: input_schema does not support oneOf, allOf, or anyOf at
+       the top level`. All three combinators are refused **at the top level** -- which is the
+       only level a cross-field rule about `outcome` and `result` can live at.
+
+    `if`/`then`/`else` is what is left, and it is the better fit anyway: Ajv's failure for a
+    missing key reads `must have required property 'result'`, which is precisely what
+    `_missing_key` reads to name the key in the recovery prompt. A `not`/`anyOf` spelling would
+    have produced `must NOT be valid`, which tells the model nothing.
     """
     allowed_outcomes = response_contract.get("allowed_outcomes") or []
     completed_result_schema = response_contract.get("completed_result_schema") or {}
 
-    branches = [
-        _envelope_branch(outcome, completed_result_schema) for outcome in allowed_outcomes
-    ]
-    if not branches:
-        # A contract naming no outcome at all has nothing to branch on. This is the flat
-        # envelope this function always built, kept verbatim for that one case -- it is
-        # unsatisfiable either way (`{"enum": []}` matches nothing), and no contract
-        # keel-cloud writes reaches it.
-        return {
-            "type": "object",
-            "properties": {
-                "outcome": {"enum": allowed_outcomes},
-                "questions": _QUESTIONS_SCHEMA,
-                "result": completed_result_schema,
-            },
-            "required": ["outcome"],
-            "additionalProperties": False,
-        }
-    if len(branches) == 1:
-        return branches[0]
-    # `type: "object"` at the top as well as inside every branch. Redundant as JSON Schema, and
-    # not redundant at all in practice: the CLI passes this document straight through as the
-    # `StructuredOutput` tool's `input_schema`, and the API refuses a tool schema without one --
-    # `API Error: 400 tools.0.custom.input_schema.type: Field required`, measured on all three
-    # operating systems in acceptance run 34613046096, where a bare `anyOf` failed every job it
-    # touched. This is the correction that run bought.
-    return {"type": "object", "anyOf": branches}
+    schema = {
+        "type": "object",
+        "properties": {
+            "outcome": {"enum": allowed_outcomes},
+            "questions": _QUESTIONS_SCHEMA,
+            "result": completed_result_schema,
+        },
+        "required": ["outcome"],
+        "additionalProperties": False,
+    }
+    schema.update(_conditional_requirements(allowed_outcomes))
+    return schema
 
 
 # spec FR-002: nothing reaches the child but the CLI's own auth/config and the handful
@@ -434,19 +428,19 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
 # directly executable path, so `_launch_argv` returns its argument unchanged.
 _CMD_SHIM_SUFFIXES = (".cmd", ".bat")
 
-# Windows' own loader will start these directly; anything else on a shim's launch line is either
-# JavaScript (run it with `node`) or another batch file (which would put `cmd.exe` back in the
-# chain, so it is not a way out).
+# Windows' own loader will start these directly; anything else a shim names is either JavaScript
+# (run it with `node`) or another batch file (which would put `cmd.exe` back in the chain, so it
+# is not a way out).
 _DIRECT_EXEC_SUFFIXES = (".exe", ".com")
 _JAVASCRIPT_SUFFIXES = (".js", ".cjs", ".mjs")
 
-# Quoted tokens, in order. Quoted on purpose: the generated shim also contains
-# `SET PATHEXT=%PATHEXT:;.JS;=;%`, which a looser parser reads as a file name.
-_QUOTED_RE = re.compile(r'"([^"\r\n]*)"')
+# A quoted token, or an unquoted run of non-space. Quoting matters: the generated shim contains
+# `SET PATHEXT=%PATHEXT:;.JS;=;%`, which an unquoted match reads as a file name.
+_SHIM_TOKEN_RE = re.compile(r'"([^"\r\n]*)"|(\S+)')
 
 
 def _expand_shim_path(raw: str, directory: str):
-    """One of a shim's quoted tokens as an absolute path on this machine, or `None`.
+    """One of a shim's tokens as an absolute path on this machine, or `None`.
 
     `%dp0%`/`%~dp0` is the shim's own directory (npm's generator sets `dp0=%~dp0`). Any other
     batch variable is one this function does not understand, and a path it does not understand
@@ -462,23 +456,28 @@ def _expand_shim_path(raw: str, directory: str):
 
 
 def _cmd_shim_launch(shim_path: str):
-    """What the shim would run, as `(kind, program, leading_args)`, or `None`.
+    """What the shim would run, as `(kind, program, before, after)`, or `None`.
 
-    `kind` is `"node"` (the program is a JavaScript file; `leading_args` are the flags the shim
-    passes to `node` before it, which npm copies from the target's own shebang -- dropping them
-    would start the program differently from the way its installer does) or `"exec"` (the
-    program is an executable the shim runs directly).
+    `kind` is `"node"` (the program is a JavaScript file, to be run by `node`) or `"exec"` (the
+    program is an executable the shim runs directly). `before` is what the shim puts ahead of the
+    program (`node`'s own flags) and `after` what it puts between the program and the caller's
+    own arguments -- **and neither is optional**: npm copies a target's shebang flags into the shim
+    (`#!/usr/bin/env node --enable-source-maps`), and a hand-written shim in the shape this
+    repository's own `tests/_fake_cli.py` writes puts the script to run there
+    (`"...python.exe" "%~dp0claude.py" %*`). Dropping them starts the program differently from
+    the way it is meant to start, which on that second shape means running an interpreter with
+    the CLI's flags and no script at all.
 
-    **Both shapes are real, and which one a host has is not a choice this runtime makes.**
+    **Both kinds are real, and which one a host has is not a choice this runtime makes.**
     Measured on a Windows runner (acceptance run 34613046096): `@github/copilot` installs a
     JavaScript bin and its shim runs `node ... npm-loader.js`, while `@anthropic-ai/claude-code`
     installs a **native launcher** (`npm view @anthropic-ai/claude-code bin` ->
     `{claude: 'bin/claude.exe'}` at 2.1.268) and its shim runs that `.exe` directly -- there is no
-    JavaScript in it anywhere. A parser that only looked for `.js` found nothing there and fell
-    back to `cmd.exe`, which is the road that fails.
+    JavaScript in it anywhere.
 
-    Only the shim's **launch line** is read -- the one carrying `%*`, the caller's own arguments.
-    The template's other quoted tokens (`IF EXIST "%dp0%\node.exe"`) are not what it runs.
+    Only the shim's **launch line** is read -- the one carrying `%*`, the caller's own arguments,
+    and only the part before it. The template's other quoted tokens (`IF EXIST "%dp0%\node.exe"`)
+    are not what it runs.
     """
     # `os.path`, not `pathlib`, on purpose: `pathlib.Path` picks its flavour from `os.name` at
     # construction, so a test that monkey-patches `os.name` to "nt" on a Mac -- which is how the
@@ -494,21 +493,58 @@ def _cmd_shim_launch(shim_path: str):
     for line in text.splitlines():
         if "%*" not in line:
             continue
-        for match in _QUOTED_RE.finditer(line):
-            token = match.group(1)
-            lowered = token.lower()
-            if lowered.endswith(_JAVASCRIPT_SUFFIXES):
-                entry = _expand_shim_path(token, directory)
-                if entry is None:
-                    continue
-                leading = [
-                    arg for arg in line[: match.start()].split() if arg.startswith("-")
-                ]
-                return "node", entry, leading
-            if lowered.endswith(_DIRECT_EXEC_SUFFIXES):
-                program = _expand_shim_path(token, directory)
-                if program is not None:
-                    return "exec", program, []
+        found = _parse_shim_launch_line(line[: line.index("%*")], directory)
+        if found is not None:
+            return found
+    return None
+
+
+def _parse_shim_launch_line(prefix: str, directory: str):
+    """`(kind, program, before, after)` from a launch line's text before `%*`, or `None`.
+
+    The program is the first **quoted** token that resolves to a file on this machine and is
+    either JavaScript or directly executable; everything the shim names after it travels with
+    it, and the `node` flags the shim names before it do too.
+    """
+    tokens = [
+        (match.group(1), True) if match.group(1) is not None else (match.group(2), False)
+        for match in _SHIM_TOKEN_RE.finditer(prefix)
+    ]
+
+    for index, (text, quoted) in enumerate(tokens):
+        if not quoted:
+            continue
+        lowered = text.lower()
+        if not lowered.endswith(_JAVASCRIPT_SUFFIXES + _DIRECT_EXEC_SUFFIXES):
+            continue
+        program = _expand_shim_path(text, directory)
+        if program is None:
+            continue
+
+        trailing = []
+        for later_text, later_quoted in tokens[index + 1:]:
+            if later_quoted:
+                resolved = _expand_shim_path(later_text, directory)
+                if resolved is not None:
+                    trailing.append(resolved)
+                elif "%" in later_text:
+                    # A batch variable this parser does not understand, in a position that
+                    # changes what the program is asked to do. Refuse the whole line rather
+                    # than launch something subtly different.
+                    return None
+                else:
+                    trailing.append(later_text)
+            elif later_text.startswith("-"):
+                trailing.append(later_text)
+
+        if lowered.endswith(_JAVASCRIPT_SUFFIXES):
+            node_flags = [
+                text_before
+                for text_before, quoted_before in tokens[:index]
+                if not quoted_before and text_before.startswith("-")
+            ]
+            return "node", program, node_flags, trailing
+        return "exec", program, [], trailing
     return None
 
 
@@ -527,12 +563,12 @@ def _launch_argv(argv):
     if found is None:
         return argv, (
             f"KEEL_LAUNCH via=cmd.exe shim={binary} -- this shim names neither a JavaScript "
-            "entry point nor an executable, so it is launched as a batch file"
+            "entry point nor an executable this machine has, so it is launched as a batch file"
         )
-    kind, program, leading = found
+    kind, program, before, after = found
 
     if kind == "exec":
-        return [program] + leading + argv[1:], (
+        return [program] + after + argv[1:], (
             f"KEEL_LAUNCH via=program program={program} shim={binary}"
         )
 
@@ -542,7 +578,7 @@ def _launch_argv(argv):
             f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no 'node' on PATH to run {program}, so "
             "the shim is launched as a batch file"
         )
-    return [node] + leading + [program] + argv[1:], (
+    return [node] + before + [program] + after + argv[1:], (
         f"KEEL_LAUNCH via=node node={node} entry={program} shim={binary}"
     )
 
