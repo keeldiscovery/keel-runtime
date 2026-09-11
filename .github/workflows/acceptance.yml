@@ -627,6 +627,86 @@ jobs:
               % (os.environ.get("RUNNER_OS"), summary))
           print("all three lines reached the model on", os.environ.get("RUNNER_OS"), ":", summary)
 
+      # The same assertion for the other host, and on Windows the only thing in this repository
+      # that proves `ClaudeCodeExecutor` can launch the real CLI there at all (spec
+      # `006-executor-shape-and-windows`). Measured on staging before this step existed: the
+      # runtime resolved `claude` to `C:\npm\prefix\claude.CMD`, the OS handed that to `cmd.exe`,
+      # and the job died with exit 255 and no output -- `cmd.exe` re-parsing `--system-prompt`'s
+      # sentence and `--json-schema`'s JSON. The runtime now reads the npm shim, finds the
+      # JavaScript entry point it names, and launches `[node, cli.js, ...]` instead; the step log
+      # carries the `KEEL_LAUNCH via=node ...` line that says which road was taken, and a run that
+      # fell back to the shim says that instead rather than pretending.
+      #
+      # It is also the one live check that spec 006's envelope schema is a schema Claude Code
+      # accepts: the answer has to come back COMPLETED *with* a `result`, which is now a
+      # requirement of the `--json-schema` the CLI enforces rather than something the runtime
+      # only notices afterwards.
+      - name: "A three-line prompt through ClaudeCodeExecutor reaches the model whole (${{ matrix.os }})"
+        if: needs.check-secrets.outputs.claude == 'true'
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE }}
+          ANTHROPIC_API_KEY: ${{ secrets.KEEL_RUNTIME_CI_CLAUDE == '' && secrets.ANTHROPIC_API_KEY || '' }}
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+          import tempfile
+
+          sys.path.insert(0, os.environ["GITHUB_WORKSPACE"])
+          from keel_runtime.executor import ClaudeCodeExecutor, InferenceRequest
+
+          founder_text = "\n".join([
+              "LINE-ONE: we sell refill pouches to corner shops.",
+              "LINE-TWO: ordering is still done over WhatsApp.",
+              "LINE-THREE: the magic word is ZEPPELIN.",
+          ])
+          request = InferenceRequest(
+              job_id="acceptance-multiline-claude",
+              interaction_id="acceptance",
+              turn_number=1,
+              request_payload={
+                  "instruction": (
+                      "Read the source material. Answer with a summary of exactly the form "
+                      "'<N> lines, magic word <WORD>', where N is how many LINE-* lines you can "
+                      "see in it and WORD is the magic word it names."
+                  ),
+                  "context": {},
+                  "interaction_history": [],
+                  "input": {"content": founder_text},
+                  "response_contract": {
+                      "allowed_outcomes": ["COMPLETED", "NEEDS_INPUT"],
+                      "completed_result_schema": {
+                          "type": "object",
+                          "required": ["summary"],
+                          "properties": {"summary": {"type": "string", "maxLength": 400}},
+                      },
+                  },
+              },
+          )
+
+          # Production's own numbers -- budget, turns and timeout all default -- so this measures
+          # the shape a founder's job actually runs in.
+          with tempfile.TemporaryDirectory() as home:
+              executor = ClaudeCodeExecutor(home=home)
+              answer = executor.execute(request)
+              print("answer:", json.dumps(answer))
+              print("envelope:", json.dumps(executor.last_envelope))
+              print("schema refusals seen:", executor.last_schema_error)
+
+          assert answer["outcome"] == "COMPLETED", "expected COMPLETED: %r" % answer
+          assert "result" in answer, (
+              "COMPLETED with no result -- the envelope schema did not hold: %r" % answer)
+          summary = answer["result"]["summary"]
+
+          assert "3" in summary, (
+              "the model did not see three lines -- the prompt was truncated on the way to the "
+              "CLI on %s: %r" % (os.environ.get("RUNNER_OS"), summary))
+          assert "ZEPPELIN" in summary.upper(), (
+              "the third line never reached the model on %s: %r"
+              % (os.environ.get("RUNNER_OS"), summary))
+          print("all three lines reached the model on", os.environ.get("RUNNER_OS"), ":", summary)
+
       - name: Job summary
         if: always()
         env:
@@ -640,8 +720,11 @@ jobs:
           have_copilot = os.environ["HAVE_COPILOT"] == "true"
 
           claude_line = (
-              'Ran `claude -p "keel connect"` against a closed port (`http://127.0.0.1:1`); '
-              "see its step log above for the reply."
+              'Ran `claude -p "keel connect"` against a closed port (`http://127.0.0.1:1`), then '
+              "sent a three-line prompt through `ClaudeCodeExecutor` on this operating system "
+              "and asserted every line reached the model and the answer came back COMPLETED "
+              "*with* a result -- on Windows that is the check that catches a CLI launched "
+              "through `cmd.exe` (see the `KEEL_LAUNCH` line in that step's log)."
               if have_claude else
               "Skipped `claude -p \"keel connect\"`: neither KEEL_RUNTIME_CI_CLAUDE nor "
               "ANTHROPIC_API_KEY is set on this repository."

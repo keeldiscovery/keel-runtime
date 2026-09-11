@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -200,23 +201,92 @@ def build_prompt(request: InferenceRequest) -> str:
     return _render_prompt(_prompt_sections(request))
 
 
+# spec 006 FR-001: the key each outcome must carry, and the only place that pairing is
+# written down on this side of the wire. It is `response_validator.validate_response`'s own
+# rule -- `COMPLETED` requires a `result`, `NEEDS_INPUT` requires `questions` -- restated as
+# the schema the model is handed, so the two cannot disagree.
+_OUTCOME_REQUIRED_KEY = {"COMPLETED": "result", "NEEDS_INPUT": "questions"}
+
+
+def _envelope_branch(outcome: str, completed_result_schema: dict) -> dict:
+    """One allowed outcome's whole envelope shape: the outcome as a `const`, the key that
+    outcome must carry, and nothing else (`additionalProperties: false`).
+
+    An outcome this runtime has no rule for -- anything but `COMPLETED`/`NEEDS_INPUT` -- gets
+    a branch requiring the outcome alone, which is exactly as much as the contract said about
+    it. Inventing a requirement for it would be inventing a rule.
+    """
+    properties = {"outcome": {"const": outcome}}
+    required = ["outcome"]
+    key = _OUTCOME_REQUIRED_KEY.get(outcome)
+    if key == "result":
+        properties["result"] = completed_result_schema
+        required.append("result")
+    elif key == "questions":
+        properties["questions"] = _QUESTIONS_SCHEMA
+        required.append("questions")
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": False,
+    }
+
+
 def _build_envelope_schema(response_contract: dict) -> dict:
-    """The `--json-schema` the CLI enforces: `{outcome, questions?, result?}` built from
-    the job's own `response_contract` (spec FR-001), `additionalProperties: false` at
-    the top so the CLI cannot pad the envelope with fields the contract never named.
+    """The `--json-schema` the CLI enforces: **one branch per allowed outcome**, `anyOf` of the
+    branches, built from the job's own `response_contract` (spec FR-001), each branch
+    `additionalProperties: false` so the CLI cannot pad the envelope with fields the contract
+    never named.
+
+    **The schema now says what the runtime checks.** Measured twice on staging (keel-e2e-eval
+    runs 34602329238 and 34607630153, the Ubuntu Claude cells): this function used to build one
+    flat object with `result` and `questions` both *optional*, so a model that answered
+    `{"outcome": "COMPLETED"}` and nothing else was **accepted by the CLI** -- the schema it had
+    been handed permitted exactly that -- and then refused by `validate_response` afterwards with
+    `COMPLETED requires a 'result'`. The one recovery pass did not land and the job failed. A
+    refusal the model can still answer is worth more than a refusal delivered after the model has
+    gone, so the requirement moved into the schema the model is actually held to.
+
+    **`anyOf`, not `oneOf` and not `if`/`then`.** Measured 2026-09-11 against Claude Code 2.1.268
+    by pointing `ANTHROPIC_BASE_URL` at a local recording server, so no model call was made:
+    `--json-schema <doc>` becomes a client-side tool named `StructuredOutput` whose
+    `input_schema` is `<doc>` **verbatim** -- no keyword is stripped, `strict: true` is not set,
+    and `output_config` carries only `effort`, so the API itself enforces nothing here. The
+    enforcement is the CLI's own **Ajv (JSON Schema 2020-12)** validation of that tool's input,
+    and a failure comes back to the model as the `Output does not match required schema`
+    `tool_result` `_last_schema_error` below already reads. All four candidate documents (the old
+    flat one, `allOf` of `if`/`then`, `anyOf`, `oneOf`) travelled verbatim, and Ajv honours all
+    three conditional forms alike -- so the choice is made by what survives a change elsewhere:
+    `anyOf` is the only one of the three inside Anthropic's own documented structured-output
+    subset, which is what would apply if a later CLI ever handed the schema to the API as a
+    strict tool schema or an `output_config.format`. `oneOf` and `if`/`then` are not supported
+    keywords there; `anyOf` is.
     """
     allowed_outcomes = response_contract.get("allowed_outcomes") or []
     completed_result_schema = response_contract.get("completed_result_schema") or {}
-    return {
-        "type": "object",
-        "properties": {
-            "outcome": {"enum": allowed_outcomes},
-            "questions": _QUESTIONS_SCHEMA,
-            "result": completed_result_schema,
-        },
-        "required": ["outcome"],
-        "additionalProperties": False,
-    }
+
+    branches = [
+        _envelope_branch(outcome, completed_result_schema) for outcome in allowed_outcomes
+    ]
+    if not branches:
+        # A contract naming no outcome at all has nothing to branch on. This is the flat
+        # envelope this function always built, kept verbatim for that one case -- it is
+        # unsatisfiable either way (`{"enum": []}` matches nothing), and no contract
+        # keel-cloud writes reaches it.
+        return {
+            "type": "object",
+            "properties": {
+                "outcome": {"enum": allowed_outcomes},
+                "questions": _QUESTIONS_SCHEMA,
+                "result": completed_result_schema,
+            },
+            "required": ["outcome"],
+            "additionalProperties": False,
+        }
+    if len(branches) == 1:
+        return branches[0]
+    return {"anyOf": branches}
 
 
 # spec FR-002: nothing reaches the child but the CLI's own auth/config and the handful
@@ -252,6 +322,12 @@ def _build_envelope_schema(response_contract: dict) -> dict:
 # prompt string among them) whatever this module handed it, so all three reach the child either
 # way (measured, one at a time, as each in turn was the next one the OS's own `cmd.exe` supplied
 # unasked), and the allow-list says so rather than pretending otherwise.
+#
+# **`_launch_argv` below now takes `cmd.exe` out of that chain** whenever the shim names a
+# JavaScript entry point and `node` is on `PATH`, so on most Windows machines nothing supplies
+# those three unasked any more. They stay on this list regardless: they are the fallback path's
+# (a shim that cannot be parsed, a machine with no `node`), and `COMSPEC`/`PATHEXT` are ordinary
+# environment furniture that a child process is entitled to see.
 _ALLOWED_ENV_EXACT = frozenset(
     {"PATH", "HOME", "USER", "LANG", "TMPDIR", "TERM",
      "SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "PROMPT"}
@@ -303,6 +379,139 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
     return env
 
 
+# ------------------------------------------------------------------ launching, without cmd.exe
+#
+# **On Windows, a `.cmd` shim is not the program -- it is a batch file, and running one means
+# running `cmd.exe`.** Measured on staging (keel-e2e-eval runs 34566001772 and 34607630153, the
+# Windows Claude cells): `shutil.which("claude")` resolves to `C:\npm\prefix\claude.CMD`, the OS
+# loader hands that to `cmd.exe` by its extension (`shell=True` or not -- see
+# `ClaudeCodeExecutor.execute`'s own note on why the resolved path is what gets run), and the job
+# then dies with **exit 255 and no output at all**, or with
+# `The filename, directory name, or volume label syntax is incorrect.` -- `cmd.exe` re-parsing an
+# argument list it was never meant to see. `--system-prompt`'s sentence and `--json-schema`'s JSON
+# are full of the characters a batch file treats as syntax (`%`, `&`, `|`, `<`, `>`, `^`, `"`), and
+# no amount of quoting on this side survives a second round of batch parsing on the other.
+#
+# Moving the *prompt* to stdin (spec 005's amendment) fixed the prompt and only the prompt. The
+# flags travel the same road, and this is the rest of that fix: **take `cmd.exe` out of the chain
+# entirely.** An npm shim is a generated batch file whose whole purpose is to run one JavaScript
+# file with `node`; its last line is, verbatim from npm's own `cmd-shim` generator
+# (`node_modules/npm/node_modules/cmd-shim/lib/index.js`, read 2026-09-11):
+#
+#     endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\<target>" %*
+#
+# where `%dp0%` is `%~dp0`, the shim's own directory, and `<target>` is the relative path to the
+# entry point -- `node_modules\@anthropic-ai\claude-code\cli.js`, `node_modules\@github\copilot
+# \index.js`. So the shim is **read**, the quoted `.js` it names is resolved against the shim's own
+# directory, and `[node, <that .js>, *args]` is launched instead, with `node` found through
+# `shutil.which`. The path is parsed out of the shim's text rather than guessed from a package
+# name, because guessing would be a claim about somebody else's install layout.
+#
+# **Every fallback keeps working and says so.** A shim with no readable `.js` (a hand-written one,
+# a shim for a compiled program, or a future npm that changes its template) and a machine with no
+# `node` on `PATH` both fall back to launching the shim exactly as before -- cmd.exe and all --
+# with one line in the launch log naming which shim and why. Falling back silently would turn this
+# into a mystery the next time it matters.
+#
+# **Nothing changes on macOS or Linux**: `os.name != "nt"` there and `which()` already returns a
+# directly executable path, so `_launch_argv` returns its argument unchanged.
+_CMD_SHIM_SUFFIXES = (".cmd", ".bat")
+
+# A quoted token ending in `.js`/`.cjs`/`.mjs`. Quoted on purpose: the generated shim also
+# contains `SET PATHEXT=%PATHEXT:;.JS;=;%`, which an unquoted match would happily mistake for a
+# path.
+_CMD_SHIM_TARGET_RE = re.compile(r'"([^"\r\n]*\.(?:js|cjs|mjs))"', re.IGNORECASE)
+
+
+def _expand_shim_path(raw: str, directory: str):
+    """`"%dp0%\\node_modules\\...\\cli.js"` as an absolute path on this machine, or `None`.
+
+    `%dp0%`/`%~dp0` is the shim's own directory (npm's generator sets `dp0=%~dp0`). Any other
+    batch variable is one this function does not understand, and a path it does not understand
+    is not a path it will launch. Separators are normalised both ways so the same parser can be
+    unit-tested on a Mac against a real Windows shim's text.
+    """
+    expanded = raw.replace("%~dp0", directory + os.sep).replace("%dp0%", directory + os.sep)
+    if "%" in expanded:
+        return None
+    expanded = expanded.replace("\\", os.sep).replace("/", os.sep)
+    candidate = os.path.normpath(expanded)
+    return candidate if os.path.isfile(candidate) else None
+
+
+def _cmd_shim_target(shim_path: str):
+    """`(entry, node_args)` read out of an npm `.cmd` shim, or `None` if it names no JavaScript.
+
+    `node_args` are the flags the shim's own line passes to `node` before the entry point --
+    npm copies them from the target's shebang (`#!/usr/bin/env node --enable-source-maps`), so
+    they are part of how that program expects to be started, and dropping them would be
+    launching it differently from the way its own installer does.
+    """
+    # `os.path`, not `pathlib`, on purpose: `pathlib.Path` picks its flavour from `os.name` at
+    # construction, so a test that monkey-patches `os.name` to "nt" on a Mac -- which is how the
+    # Windows branch below is tested at all -- would get a `WindowsPath` it cannot instantiate.
+    # `os.path` is fixed at interpreter start and does the same job here.
+    try:
+        with open(shim_path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return None
+
+    directory = os.path.dirname(os.path.abspath(shim_path))
+    for line in text.splitlines():
+        match = _CMD_SHIM_TARGET_RE.search(line)
+        if match is None:
+            continue
+        entry = _expand_shim_path(match.group(1), directory)
+        if entry is None:
+            continue
+        node_args = [token for token in line[: match.start()].split() if token.startswith("-")]
+        return entry, node_args
+    return None
+
+
+def _launch_argv(argv):
+    """`(argv, note)` -- what to actually run, and the one line the launch log should carry.
+
+    `note` is `None` whenever there is nothing to say, which is every run on macOS and Linux and
+    every Windows run whose binary is not a `.cmd`/`.bat` shim.
+    """
+    argv = list(argv)
+    binary = argv[0]
+    if os.name != "nt" or not binary.lower().endswith(_CMD_SHIM_SUFFIXES):
+        return argv, None
+
+    found = _cmd_shim_target(binary)
+    if found is None:
+        return argv, (
+            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no JavaScript entry point could be read "
+            "out of this shim, so it is launched as a batch file"
+        )
+    entry, node_args = found
+
+    node = shutil.which("node")
+    if node is None:
+        return argv, (
+            f"KEEL_LAUNCH via=cmd.exe shim={binary} -- no 'node' on PATH to run {entry}, so the "
+            "shim is launched as a batch file"
+        )
+
+    return [node] + node_args + [entry] + argv[1:], (
+        f"KEEL_LAUNCH via=node node={node} entry={entry} shim={binary}"
+    )
+
+
+# One line per distinct launch shape per process. The runtime's stdout *is* the launch log the
+# skill tails (`$KEEL_HOME/keel-connect-check.launch.log`), and a line per job would drown it.
+_LAUNCH_NOTES_SAID = set()
+
+
+def _say_launch_note(note) -> None:
+    if note and note not in _LAUNCH_NOTES_SAID:
+        _LAUNCH_NOTES_SAID.add(note)
+        print(note, flush=True)
+
+
 # ---------------------------------------------------------------------------- prompt transport
 #
 # **One rule, both executors: the prompt travels on the child's stdin, and never in argv.**
@@ -336,7 +545,13 @@ def _run_with_prompt_on_stdin(argv, prompt, cwd, env, timeout_seconds, binary):
 
     Raises `ExecutorTimeout` / `ExecutorUnavailable` with the same wording both executors used
     when each had its own copy of this call.
+
+    `_launch_argv` is applied here rather than in either executor's own `_build_argv`, so both
+    hosts take `cmd.exe` out of the chain on Windows by the same rule and neither can drift.
     """
+    argv, launch_note = _launch_argv(argv)
+    _say_launch_note(launch_note)
+
     try:
         completed = subprocess.run(
             argv,
@@ -376,6 +591,48 @@ _RECOVERY_SECTION_TEMPLATE = (
     "RECOVERY -- your previous answer was refused: {error}. Answer again with what you "
     "have; cut the named field to half its length; change nothing else."
 )
+
+# spec 006 FR-002: the same section for the other kind of refusal. "Cut the named field to
+# half its length" is the right instruction for a too-long field and the *wrong* one for a
+# key that was never sent -- there is nothing to cut, and a model told to cut something it
+# omitted has been handed a puzzle instead of a remedy. When the refusal says a key is
+# missing, the recovery prompt names that key and asks for it.
+_RECOVERY_MISSING_KEY_TEMPLATE = (
+    "RECOVERY -- your previous answer was refused: {error}. Your answer carried no "
+    "'{key}', and an answer of that outcome must have one. Answer again with everything "
+    "you already had plus a '{key}'; change nothing else."
+)
+
+# Ajv's own wording, which is what the CLI's `Output does not match required schema` refusal
+# carries (measured 2026-09-11 against Claude Code 2.1.268: the CLI validates the
+# `StructuredOutput` tool's input with Ajv and hands the message straight back to the model),
+# and `response_validator`'s own two, which is what the Copilot path's refusal carries.
+_AJV_MISSING_KEY_RE = re.compile(r"must have required property '([^']+)'")
+_RUNTIME_MISSING_KEY_PHRASES = (
+    ("COMPLETED requires a 'result'", "result"),
+    ("NEEDS_INPUT requires a non-empty questions", "questions"),
+)
+
+
+def _missing_key(error_text) -> str | None:
+    """The key a refusal says was missing, or `None` when it says something else."""
+    if not isinstance(error_text, str) or not error_text:
+        return None
+    match = _AJV_MISSING_KEY_RE.search(error_text)
+    if match is not None:
+        return match.group(1)
+    for phrase, key in _RUNTIME_MISSING_KEY_PHRASES:
+        if phrase in error_text:
+            return key
+    return None
+
+
+def _recovery_section(error_text: str) -> str:
+    """FR-011's recovery section, in the shape this particular refusal calls for."""
+    key = _missing_key(error_text)
+    if key is not None:
+        return _RECOVERY_MISSING_KEY_TEMPLATE.format(error=error_text, key=key)
+    return _RECOVERY_SECTION_TEMPLATE.format(error=error_text)
 
 
 def _parse_stream_events(stdout: str) -> list:
@@ -556,9 +813,7 @@ class ClaudeCodeExecutor(Executor):
         if result_event is not None and result_event.get("subtype") == "error_max_turns":
             schema_error_so_far = _last_schema_error(all_events)
             if schema_error_so_far:
-                recovery_prompt = prompt + "\n\n" + _RECOVERY_SECTION_TEMPLATE.format(
-                    error=schema_error_so_far
-                )
+                recovery_prompt = prompt + "\n\n" + _recovery_section(schema_error_so_far)
                 events2, result_event2, completed2 = self._invoke(
                     recovery_prompt, envelope_schema, job_dir
                 )
@@ -1084,9 +1339,7 @@ class CopilotExecutor(Executor):
             # refusal. On the Claude path the CLI produced that refusal; here the runtime's own
             # validator did, and `last_schema_error` carries it either way.
             self.last_schema_error = str(first_failure)
-            recovery_prompt = prompt + "\n\n" + _RECOVERY_SECTION_TEMPLATE.format(
-                error=self.last_schema_error
-            )
+            recovery_prompt = prompt + "\n\n" + _recovery_section(self.last_schema_error)
             events2, completed2 = self._invoke(recovery_prompt, job_dir)
             all_events.extend(events2)
             self.last_events = all_events

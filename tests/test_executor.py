@@ -29,6 +29,7 @@ from keel_runtime.executor import (
     InvalidResponse,
     build_prompt,
 )
+from keel_runtime.response_validator import validate_response
 
 from ._fake_cli import install_fake_cli
 
@@ -345,27 +346,42 @@ class ClaudeCodeExecutorTest(_ExecutorTestBase):
         self.executor.execute(request)
 
         record = self._record()
+        # spec 006 FR-001: one branch per allowed outcome, `anyOf` of the branches, each
+        # branch requiring the key that outcome must carry. Still asserted in full, and in
+        # the contract's own outcome order.
         expected_schema = {
-            "type": "object",
-            "properties": {
-                "outcome": {"enum": ["NEEDS_INPUT", "COMPLETED"]},
-                "questions": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["id", "question", "input_type", "required"],
-                        "properties": {
-                            "id": {"type": "string"},
-                            "question": {"type": "string"},
-                            "input_type": {"type": "string"},
-                            "required": {"type": "boolean"},
+            "anyOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "outcome": {"const": "NEEDS_INPUT"},
+                        "questions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["id", "question", "input_type", "required"],
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "question": {"type": "string"},
+                                    "input_type": {"type": "string"},
+                                    "required": {"type": "boolean"},
+                                },
+                            },
                         },
                     },
+                    "required": ["outcome", "questions"],
+                    "additionalProperties": False,
                 },
-                "result": response_contract["completed_result_schema"],
-            },
-            "required": ["outcome"],
-            "additionalProperties": False,
+                {
+                    "type": "object",
+                    "properties": {
+                        "outcome": {"const": "COMPLETED"},
+                        "result": response_contract["completed_result_schema"],
+                    },
+                    "required": ["outcome", "result"],
+                    "additionalProperties": False,
+                },
+            ]
         }
         expected_argv = [
             "-p",
@@ -750,3 +766,248 @@ class CredentialTwinTests(unittest.TestCase):
         claude, copilot = self._env(PATH="/bin", KEEL_COPILOT_GITHUB_TOKEN="tok")
         self.assertEqual(copilot.get("COPILOT_GITHUB_TOKEN"), "tok")
         self.assertNotIn("COPILOT_GITHUB_TOKEN", claude)
+
+
+# ---------------------------------------------------- the envelope says what the runtime checks
+
+_SIX_HUNDRED = {
+    "type": "object",
+    "required": ["statement"],
+    "properties": {"statement": {"type": "string", "maxLength": 600}},
+}
+
+
+def _branch_of(schema: dict, outcome: str) -> dict:
+    """The branch of a built envelope schema that names `outcome`."""
+    branches = schema.get("anyOf") or [schema]
+    for branch in branches:
+        if branch["properties"]["outcome"].get("const") == outcome:
+            return branch
+    raise AssertionError(f"no branch for {outcome!r} in {schema!r}")
+
+
+def _matches_envelope(answer, schema: dict) -> bool:
+    """Does `answer` satisfy a *built envelope schema*? -- `anyOf` of closed objects whose
+    `outcome` is a `const`, which is the whole vocabulary `_build_envelope_schema` emits.
+
+    Deliberately a dozen lines rather than a dependency: `jsonschema` is not installed in the
+    shipped configuration (R-2), and the point of the assertion below is that this envelope and
+    `validate_response` agree about the same answers. `AjvAgreementTest` runs the same table
+    through a real validator wherever one happens to be installed.
+    """
+    for branch in schema.get("anyOf") or [schema]:
+        properties = branch.get("properties") or {}
+        if not isinstance(answer, dict):
+            return False
+        const = (properties.get("outcome") or {}).get("const")
+        if const is not None and answer.get("outcome") != const:
+            continue
+        if any(key not in answer for key in branch.get("required") or []):
+            continue
+        if branch.get("additionalProperties") is False and any(
+            key not in properties for key in answer
+        ):
+            continue
+        return True
+    return False
+
+
+class EnvelopeSchemaTest(unittest.TestCase):
+    """spec 006 FR-001. Measured twice on staging (keel-e2e-eval runs 34602329238 and
+    34607630153): the model answered `{"outcome": "COMPLETED"}` with no `result`, the CLI
+    accepted it because the schema it had been handed made `result` optional, and the runtime
+    refused it afterwards. The envelope the model is held to now says what the runtime checks.
+    """
+
+    CONTRACT = {
+        "allowed_outcomes": ["NEEDS_INPUT", "COMPLETED"],
+        "completed_result_schema": _SIX_HUNDRED,
+    }
+
+    _UNSET = object()
+
+    def _schema(self, contract=_UNSET):
+        if contract is self._UNSET:
+            contract = self.CONTRACT
+        return executor_module._build_envelope_schema(contract)
+
+    def test_the_completed_branch_requires_a_result(self):
+        branch = _branch_of(self._schema(), "COMPLETED")
+        self.assertIn("result", branch["required"])
+        self.assertEqual(branch["properties"]["result"], _SIX_HUNDRED)
+
+    def test_the_needs_input_branch_requires_questions(self):
+        branch = _branch_of(self._schema(), "NEEDS_INPUT")
+        self.assertIn("questions", branch["required"])
+        self.assertEqual(
+            branch["properties"]["questions"], executor_module._QUESTIONS_SCHEMA
+        )
+
+    def test_the_answer_the_measurement_caught_is_no_longer_a_valid_envelope(self):
+        """The exact shape both staging runs produced."""
+        self.assertFalse(_matches_envelope({"outcome": "COMPLETED"}, self._schema()))
+        self.assertFalse(_matches_envelope({"outcome": "NEEDS_INPUT"}, self._schema()))
+
+    def test_a_complete_answer_of_either_kind_still_passes(self):
+        schema = self._schema()
+        self.assertTrue(
+            _matches_envelope({"outcome": "COMPLETED", "result": {"statement": "x"}}, schema)
+        )
+        self.assertTrue(
+            _matches_envelope(
+                {
+                    "outcome": "NEEDS_INPUT",
+                    "questions": [
+                        {"id": "q1", "question": "?", "input_type": "text", "required": True}
+                    ],
+                },
+                schema,
+            )
+        )
+
+    def test_a_branch_may_not_carry_the_other_outcomes_key(self):
+        """`additionalProperties: false` per branch: a COMPLETED answer padded with
+        `questions` is not a COMPLETED answer with something extra, it is two answers.
+        """
+        self.assertFalse(
+            _matches_envelope(
+                {"outcome": "COMPLETED", "result": {"statement": "x"}, "questions": []},
+                self._schema(),
+            )
+        )
+        for branch in self._schema()["anyOf"]:
+            self.assertIs(branch["additionalProperties"], False)
+
+    def test_the_envelope_and_validate_response_agree_answer_for_answer(self):
+        """The whole point of the change: the shape the CLI enforces and the shape
+        `response_validator` enforces are the same shape.
+        """
+        answers = [
+            {"outcome": "COMPLETED", "result": {"statement": "x"}},
+            {"outcome": "COMPLETED"},
+            {"outcome": "NEEDS_INPUT"},
+            {
+                "outcome": "NEEDS_INPUT",
+                "questions": [
+                    {"id": "q1", "question": "?", "input_type": "text", "required": True}
+                ],
+            },
+            {"outcome": "ABANDONED"},
+        ]
+        schema = self._schema()
+        for answer in answers:
+            with self.subTest(answer=answer):
+                try:
+                    validate_response(answer, self.CONTRACT)
+                    runtime_accepts = True
+                except InvalidResponse:
+                    runtime_accepts = False
+                self.assertEqual(_matches_envelope(answer, schema), runtime_accepts)
+
+    def test_one_allowed_outcome_is_one_shape_not_an_anyof_of_one(self):
+        schema = self._schema({"allowed_outcomes": ["COMPLETED"], "completed_result_schema": {}})
+        self.assertNotIn("anyOf", schema)
+        self.assertEqual(schema["required"], ["outcome", "result"])
+
+    def test_an_outcome_the_runtime_has_no_rule_for_requires_only_itself(self):
+        schema = self._schema({"allowed_outcomes": ["COMPLETED", "ABANDONED"]})
+        branch = _branch_of(schema, "ABANDONED")
+        self.assertEqual(branch["required"], ["outcome"])
+        self.assertEqual(list(branch["properties"]), ["outcome"])
+
+    def test_a_contract_naming_no_outcome_keeps_the_flat_envelope(self):
+        schema = self._schema({})
+        self.assertEqual(schema["properties"]["outcome"], {"enum": []})
+        self.assertEqual(schema["required"], ["outcome"])
+
+    def test_the_copilot_prompt_carries_the_same_schema(self):
+        """C-8: one envelope, both hosts. Claude gets it as a flag, Copilot as text."""
+        sections = {
+            "nonce": "0123456789abcdef",
+            "task": "t",
+            "contract": self.CONTRACT,
+            "founder_text": "",
+            "participant_answers": None,
+            "earlier_turns": [],
+            "project_context": {},
+        }
+        prompt = executor_module._render_copilot_prompt(sections, self._schema())
+        self.assertIn(json.dumps(self._schema(), indent=2), prompt)
+        self.assertIn('"anyOf"', prompt)
+
+
+class AjvAgreementTest(unittest.TestCase):
+    """The same table, through a real JSON Schema validator when the machine happens to have
+    one. `jsonschema` is not installed in the shipped configuration (R-2) and never in CI, so
+    this skips there -- it exists so that a developer who *does* have it gets the stronger
+    check for free, against the same schema Claude Code's own Ajv sees.
+    """
+
+    def test_a_real_validator_agrees_with_validate_response(self):
+        try:
+            import jsonschema  # noqa: F401
+        except ImportError:
+            self.skipTest("jsonschema is not installed -- the shipped configuration (R-2)")
+
+        contract = EnvelopeSchemaTest.CONTRACT
+        schema = executor_module._build_envelope_schema(contract)
+        for answer, expected in (
+            ({"outcome": "COMPLETED", "result": {"statement": "x"}}, True),
+            ({"outcome": "COMPLETED"}, False),
+            ({"outcome": "NEEDS_INPUT"}, False),
+        ):
+            with self.subTest(answer=answer):
+                try:
+                    jsonschema.validate(answer, schema)
+                    accepted = True
+                except jsonschema.exceptions.ValidationError:
+                    accepted = False
+                self.assertEqual(accepted, expected)
+
+
+class RecoveryNamesTheMissingKeyTest(_ExecutorTestBase):
+    """spec 006 FR-002: "cut the named field to half its length" is the remedy for a field
+    that was too long and nonsense for a key that was never sent.
+    """
+
+    def test_the_missing_key_is_named_and_the_cut_instruction_is_not_given(self):
+        refusal = self._refusal_event("must have required property 'result'")
+        first = self._result_event(None, is_error=True, subtype="error_max_turns")
+        second = self._result_event({"outcome": "COMPLETED", "result": {"statement": "ok"}})
+        self._set_streams([refusal, first], [second])
+
+        self.executor.execute(_request())
+
+        recovery_prompt = self._records()[1]["stdin"]
+        self.assertIn("RECOVERY -- your previous answer was refused: must have required "
+                      "property 'result'.", recovery_prompt)
+        self.assertIn("carried no 'result'", recovery_prompt)
+        self.assertIn("plus a 'result'", recovery_prompt)
+        self.assertNotIn("cut the named field", recovery_prompt)
+
+    def test_a_field_that_was_too_long_still_gets_the_cut_it_in_half_instruction(self):
+        refusal = self._refusal_event(
+            "/result/statement: must NOT have more than 600 characters (got 704)"
+        )
+        first = self._result_event(None, is_error=True, subtype="error_max_turns")
+        second = self._result_event({"outcome": "COMPLETED", "result": {"statement": "ok"}})
+        self._set_streams([refusal, first], [second])
+
+        self.executor.execute(_request())
+
+        recovery_prompt = self._records()[1]["stdin"]
+        self.assertIn("cut the named field to half its length", recovery_prompt)
+        self.assertNotIn("carried no", recovery_prompt)
+
+    def test_the_runtime_validators_own_wording_is_recognised_too(self):
+        """The Copilot path's refusal is `response_validator`'s, not Ajv's."""
+        self.assertEqual(executor_module._missing_key("COMPLETED requires a 'result'"), "result")
+        self.assertEqual(
+            executor_module._missing_key("NEEDS_INPUT requires a non-empty questions[] array"),
+            "questions",
+        )
+        self.assertEqual(
+            executor_module._missing_key("must have required property 'questions'"), "questions"
+        )
+        self.assertIsNone(executor_module._missing_key("final_answer is not JSON: line 1"))
+        self.assertIsNone(executor_module._missing_key(None))
