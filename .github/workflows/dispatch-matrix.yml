@@ -17,7 +17,7 @@
 # never decides what runs -- the referee owns the schedule (invariant M9), debounces five merges in
 # ten minutes into one run through its own `concurrency: matrix-<repo>` (§6.2), and chooses the set.
 #
-# THE SECRET: KEEL_DISPATCH_TOKEN, a fine-grained token the founder creates once whose only
+# THE SECRET: KEEL_DISPATCH_TOKEN (or KEEL_DISPATCH; the founder stored it under that name, either is read), a fine-grained token the founder creates once whose only
 # permission is on keeldiscovery/keel-e2e-eval. Without it this workflow is a no-op that says so --
 # not a red check (see the first step).
 #
@@ -42,7 +42,7 @@ jobs:
     env:
       # `secrets` is readable in a job-level `env`, and `if:` on a step is not allowed to read
       # `secrets` directly -- so the presence of the token becomes a plain boolean here, once.
-      HAVE_TOKEN: ${{ secrets.KEEL_DISPATCH_TOKEN != '' }}
+      HAVE_TOKEN: ${{ (secrets.KEEL_DISPATCH_TOKEN || secrets.KEEL_DISPATCH) != '' }}
     steps:
       # NO TOKEN IS A NO-OP, NOT A RED CHECK. The founder creates KEEL_DISPATCH_TOKEN when the
       # twin exists (design §13 step 5); until then every merge to master prints this one line and
@@ -57,7 +57,7 @@ jobs:
       - name: POST repository_dispatch `matrix` to keeldiscovery/keel-e2e-eval
         if: env.HAVE_TOKEN == 'true'
         env:
-          TOKEN: ${{ secrets.KEEL_DISPATCH_TOKEN }}
+          TOKEN: ${{ secrets.KEEL_DISPATCH_TOKEN || secrets.KEEL_DISPATCH }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
           WHY: ${{ github.event.head_commit.message }}
