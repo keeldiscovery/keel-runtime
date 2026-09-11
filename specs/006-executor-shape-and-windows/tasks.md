@@ -68,3 +68,24 @@ paid model call from this machine -- the acceptance run is the proof.
       installed.
 - [x] T014 Merge `--no-ff` into master, push, and watch the acceptance run it triggers -- the
       Windows Claude cell is the one this feature exists for.
+
+## Phase 5: What that run corrected
+
+- [x] T015 **The envelope needed a top-level `type`.** Acceptance run 34613046096, all three
+      operating systems: `API Error: 400 tools.0.custom.input_schema.type: Field required`. The
+      document is passed through as a tool schema and the API requires `type` on one. `anyOf` now
+      sits under `type: "object"`. Asserted structurally and in the exact-argv test.
+- [x] T016 **`claude`'s Windows shim has no JavaScript in it.** Same run, windows-latest:
+      `KEEL_LAUNCH via=cmd.exe shim=C:\npm\prefix\claude.CMD -- no JavaScript entry point could
+      be read out of this shim`. `npm view @anthropic-ai/claude-code bin` ->
+      `{claude: 'bin/claude.exe'}` (2.1.268): the package installs a native launcher. The parser
+      now reads the shim's launch line and handles both of npm's shapes -- `node` + `.js`, or the
+      `.exe` directly. `@github/copilot` took the new road correctly in that same run
+      (`via=node ... npm-loader.js`) and its windows-latest step passed, which is what says the
+      shim-reading half was right and only its vocabulary was too narrow.
+- [x] T017 Fixtures regenerated to match: `claude-native.cmd` (npm's no-shebang shape, the real
+      `bin/claude.exe` path) replaces the invented `compiled-tool.cmd`, and
+      `hand-written-python.cmd` carries the genuine fallback case. `tests.yml`'s two
+      windows-latest failures (`node.EXE` != `node` -- `shutil.which` returns the extension it
+      resolved) fixed in the assertion, not in the code.
+- [x] T018 Merge again, push, and watch the acceptance run that replaces 34613046096.
