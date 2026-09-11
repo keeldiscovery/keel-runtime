@@ -99,6 +99,8 @@ class CliStatusTest(unittest.TestCase):
                 "base_url": "https://cloud.keel.example",
                 "last_heartbeat_at": payload["last_heartbeat_at"],
                 "connected": True,
+                "launcher_version": None,
+                "busy": False,
                 "home": str(self.home),
                 "environment": "cloud.keel.example",
                 "executor": "claude",
@@ -228,6 +230,45 @@ class StatusEnvironmentKeysTest(unittest.TestCase):
         self.assertEqual(payload["running"], True)
         self.assertEqual(payload["base_url"], "http://localhost:18081")
         self.assertEqual(payload["environment"], "localhost:18081")
+
+
+
+class LauncherVersionAndBusyTest(unittest.TestCase):
+    """spec `007-launcher-version`: the running shape says who launched the process and whether
+    it is working on a job right now -- the two facts a newer skill reads before it may replace
+    this runtime (keel-cloud `canon/designs/upgrade-in-place-design.md`)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self._tmp.name) / "home"
+        self.home.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def test_a_launched_and_busy_runtime_reports_both(self):
+        heartbeat.write(
+            self.home,
+            heartbeat.Heartbeat(
+                pid=os.getpid(),
+                agent_session_id="5b2e2f0a-9c3b-4b7e-8f3a-1e6c9b7a2d10",
+                base_url="https://cloud.keel.example",
+                last_heartbeat_at=heartbeat.now_iso8601(),
+                launcher_version="1.1.0",
+                job_id="job-7",
+            ),
+        )
+        result = _run_status(self.home)
+        payload = json.loads(result.stdout.strip())
+        self.assertEqual(payload["launcher_version"], "1.1.0")
+        self.assertTrue(payload["busy"])
+
+    def test_the_connect_flag_and_the_environment_form_both_parse(self):
+        from keel_runtime.cli import build_parser
+        args = build_parser().parse_args(["connect", "--launcher-version", "1.1.0"])
+        self.assertEqual(args.launcher_version, "1.1.0")
+        from keel_runtime import config as config_module
+        self.assertEqual(config_module.ENV_LAUNCHER_VERSION, "KEEL_LAUNCHER_VERSION")
 
 
 if __name__ == "__main__":
