@@ -272,6 +272,26 @@ class ThePromptTest(_FakeCodexCase):
 
 
 class TheEnvironmentTest(_FakeCodexCase):
+    def test_the_keel_twin_of_codex_home_reaches_the_cli_under_the_real_name(self):
+        """Measured 2026-09-12: Codex strips `CODEX_HOME` from the shells it runs commands in, so
+        a runtime started by the skill inside a Codex session -- or a matrix cell with an
+        isolated Codex home -- names it as `KEEL_CODEX_HOME`, which nothing strips."""
+        self._queue_stdout(_fixture("completed.jsonl"))
+        saved = {k: os.environ.get(k) for k in ("CODEX_HOME", "KEEL_CODEX_HOME")}
+        os.environ.pop("CODEX_HOME", None)
+        os.environ["KEEL_CODEX_HOME"] = "/tmp/an-isolated-codex-home"
+        try:
+            self.executor.execute(_request())
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        env = self._record()["env"]
+        self.assertEqual(env.get("CODEX_HOME"), "/tmp/an-isolated-codex-home")
+        self.assertNotIn("KEEL_CODEX_HOME", env)
+
     def test_only_codex_home_and_openai_names_travel_besides_the_common_set(self):
         self._queue_stdout(_fixture("completed.jsonl"))
         extra = {

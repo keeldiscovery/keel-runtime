@@ -355,6 +355,11 @@ _COPILOT_ENV_EXACT = frozenset({"GH_TOKEN", "GITHUB_TOKEN", "GH_HOST"})
 _CREDENTIAL_TWINS = (
     ("KEEL_CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"),
     ("KEEL_COPILOT_GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN"),
+    # Codex (spec 008), measured 2026-09-12: a command Codex runs does not see `CODEX_HOME` even
+    # when the parent set it -- the one variable that says where the credential is, stripped by
+    # exact name like the two above. The runtime is started from inside such a shell, so a cell
+    # (or a founder) whose Codex login lives in an isolated home names it as `KEEL_CODEX_HOME`.
+    ("KEEL_CODEX_HOME", "CODEX_HOME"),
 )
 
 
@@ -374,7 +379,8 @@ def _build_env(prefixes=_CLAUDE_ENV_PREFIXES, extra_exact=_CLAUDE_ENV_EXACT) -> 
         elif any(key.startswith(prefix) for prefix in prefixes):
             env[key] = value
     for twin, real in _CREDENTIAL_TWINS:
-        if not env.get(real) and os.environ.get(twin) and any(real.startswith(p) for p in prefixes):
+        wanted = real in extra_exact or any(real.startswith(p) for p in prefixes)
+        if not env.get(real) and os.environ.get(twin) and wanted:
             env[real] = os.environ[twin]
     return env
 

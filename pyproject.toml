@@ -1,6 +1,6 @@
 [project]
 name = "keel-runtime"
-version = "0.3.0"
+version = "0.3.1"
 description = "Keel's local runtime: authorizes a device against Keel Cloud, long-polls for inference jobs, and executes them locally (spec 020 FR-024..028)."
 requires-python = ">=3.9"
 # What PyPI shows (keel-marketing `funnels-design.md` §2.3): the README as the long description,
