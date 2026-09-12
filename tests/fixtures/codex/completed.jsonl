@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"01a0966f-c8df-7590-8e43-69bdf401aaf9"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"outcome\":\"COMPLETED\",\"result\":{\"summary\":\"Independent restaurant managers spend hours each week matching deliveries to invoices.\"}}"}}
+{"type":"turn.completed","usage":{"input_tokens":11241,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":35,"reasoning_output_tokens":0}}

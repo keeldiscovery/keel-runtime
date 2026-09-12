@@ -96,9 +96,9 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument(
         "--executor",
         dest="executor",
-        choices=["claude", "claude-code", "copilot", "scripted", "stub"],
+        choices=["claude", "claude-code", "copilot", "codex", "scripted", "stub"],
         help="executor to run jobs with: claude (default; claude-code is a permanent alias), "
-        "copilot, or stub/scripted (test-only). Named explicitly it wins outright -- even if "
+        "copilot, codex, or stub/scripted (test-only). Named explicitly it wins outright -- even if "
         "its CLI is missing, which is reported per job rather than second-guessed here.",
     )
     # design §5.3: **the skill passes the host through.** `keel_connect_check.py` runs the
@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
     connect.add_argument(
         "--host",
         dest="host",
-        choices=["claude", "copilot", "auto"],
+        choices=["claude", "copilot", "codex", "auto"],
         default="auto",
         help="the host this runtime was launched under, when the caller knows (the skill does); "
         "'auto' reads the environment's own host markers instead",
@@ -120,6 +120,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="the --model slug to pin the copilot executor to (C-5); falls back to "
         "KEEL_COPILOT_MODEL, then to config.json's copilot_model, then to Copilot's own "
         "routing",
+    )
+    connect.add_argument(
+        "--codex-model",
+        dest="codex_model",
+        help="the -m slug to pin the codex executor to; falls back to KEEL_CODEX_MODEL, then to "
+        "config.json's codex_model, then to the account's own default model",
     )
     connect.add_argument(
         "--script",
@@ -252,10 +258,14 @@ def executor_startup_lines(config) -> list:
         # measures the router, not a model, so an unpinned run must be visible in the log
         # rather than inferred from the absence of a word.
         parts.append(f"model={config.copilot_model or 'auto'}")
+    if name == "codex":
+        # Same rule, this host's word: unpinned, Codex answers with the account's default model,
+        # and `model=default` says so rather than leaving it to be inferred.
+        parts.append(f"model={config.codex_model or 'default'}")
 
     line = " ".join(parts)
     if source == "ambiguous-path":
-        line += "  # both CLIs on PATH; pass --executor to choose"
+        line += "  # more than one host CLI on PATH; pass --executor to choose"
 
     lines = [line]
     if binary is not None and binary_path is None:
@@ -313,6 +323,7 @@ def _run_connect(args) -> int:
         max_turns=config.job_max_turns,
         timeout_seconds=config.job_timeout_seconds,
         copilot_model=config.copilot_model,
+        codex_model=config.codex_model,
     )
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)

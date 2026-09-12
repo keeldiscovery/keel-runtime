@@ -1,0 +1,7 @@
+{"type":"thread.started","thread_id":"01a09670-6822-7282-827f-32dce8d709f7"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll run `ls -a` in the working directory."}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -a'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc 'ls -a'","aggregated_output":".\n..\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\"ran\":true,\"note\":\"The command completed successfully and listed only . and ...\"}"}}
+{"type":"turn.completed","usage":{"input_tokens":29753,"cached_input_tokens":26112,"cache_write_input_tokens":0,"output_tokens":71,"reasoning_output_tokens":0}}

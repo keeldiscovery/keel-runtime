@@ -50,7 +50,7 @@ class _WhichCase(unittest.TestCase):
         real_which = shutil.which
 
         def fake_which(binary, *rest, **kwargs):
-            if binary in ("claude", "copilot"):
+            if binary in ("claude", "copilot", "codex"):
                 return "/fake/bin/" + binary if binary in present else None
             return real_which(binary, *rest, **kwargs)
 
@@ -121,6 +121,46 @@ class TheSelectionOrderTest(_WhichCase):
                 (),
                 "copilot",
                 "host",
+            ),
+            (
+                "CODEX_THREAD_ID alone names codex (spec 008)",
+                _args(),
+                {"CODEX_THREAD_ID": "01a09670-929a-7fb1-867d-8fb479ada847"},
+                ("claude", "copilot", "codex"),
+                "codex",
+                "host",
+            ),
+            (
+                "CODEX_SESSION_ID alone names codex too",
+                _args(),
+                {"CODEX_SESSION_ID": "01a09670-929a-7fb1-867d-8fb479ada847"},
+                (),
+                "codex",
+                "host",
+            ),
+            (
+                "a Codex session inside Claude Code is two answers, so no answer",
+                _args(),
+                {"CODEX_THREAD_ID": "x", "CLAUDECODE": "1"},
+                ("codex",),
+                "codex",
+                "path",
+            ),
+            (
+                "codex alone on PATH is the answer when nothing above decided",
+                _args(),
+                {},
+                ("codex",),
+                "codex",
+                "path",
+            ),
+            (
+                "three CLIs on PATH and nothing above decided is claude, said out loud",
+                _args(),
+                {},
+                ("claude", "copilot", "codex"),
+                "claude",
+                "ambiguous-path",
             ),
             (
                 "AI_AGENT naming Claude Code counts the same way",
@@ -279,7 +319,7 @@ class TheStartupLineTest(_WhichCase):
             self._config(executor="claude", executor_source="ambiguous-path")
         )[0]
         self.assertIn("source=ambiguous-path", line)
-        self.assertIn("both CLIs on PATH", line)
+        self.assertIn("more than one host CLI on PATH", line)
         self.assertIn("--executor", line)
 
     def test_a_missing_cli_gets_its_own_line_and_still_connects(self):
@@ -310,6 +350,21 @@ class TheStartupLineTest(_WhichCase):
         )[0]
         self.assertIn("model=auto", unpinned)
         self.assertIn("model=gpt-5.4", pinned)
+
+    def test_an_unpinned_codex_run_says_model_default_out_loud(self):
+        """spec 008: unpinned, `codex exec` answers with the account's default model (measured
+        `gpt-6-astra`), and the line says `model=default` rather than leaving it to be inferred."""
+        self._on_path("codex")
+        self._no_version_probe()
+        line = cli_module.executor_startup_lines(
+            self._config(executor="codex", executor_source="host", codex_model=None)
+        )[0]
+        self.assertIn("KEEL_EXECUTOR=codex", line)
+        self.assertIn("model=default", line)
+        pinned = cli_module.executor_startup_lines(
+            self._config(executor="codex", executor_source="flag", codex_model="gpt-6-astra")
+        )[0]
+        self.assertIn("model=gpt-6-astra", pinned)
 
     def test_the_claude_line_carries_no_model_key(self):
         self._on_path("claude")

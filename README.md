@@ -218,10 +218,10 @@ dead; see `specs/021-keel-runtime-status/research.md` §4.
 
 ## Which executor runs
 
-There are two hosts, Claude Code and GitHub Copilot, and each has an executor. Keel never ships a
-host CLI inside anything of ours: each is self-updating and each authenticates against an account
-that is *the founder's*, so a frozen copy would be stale within a week and unable to log them in.
-Both are found on `PATH`.
+There are three hosts, Claude Code, GitHub Copilot and Codex, and each has an executor. Keel never
+ships a host CLI inside anything of ours: each is self-updating and each authenticates against an
+account that is *the founder's*, so a frozen copy would be stale within a week and unable to log
+them in. All three are found on `PATH`.
 
 ```
 1  explicit:  --executor  >  KEEL_EXECUTOR  >  $KEEL_HOME/config.json["executor"]
@@ -230,11 +230,12 @@ Both are found on `PATH`.
               COPILOT_AGENT_SESSION_ID non-empty, or COPILOT_CLI == "1"   -> copilot
               CLAUDECODE == "1"                                           -> claude
               AI_AGENT starts with "github_copilot" / "claude-code"       -> copilot / claude
+              CODEX_THREAD_ID or CODEX_SESSION_ID non-empty               -> codex
               -> exactly one answer, take it; two different answers, take NEITHER
-3  PATH:      exactly one of `copilot` / `claude` on PATH  -> that one
-4  both on PATH and nothing above decided  -> claude, and say so
-5  neither on PATH -> claude, and print KEEL_EXECUTOR_UNAVAILABLE; the runtime still
-                      connects and reports EXECUTOR_UNAVAILABLE per job
+3  PATH:      exactly one of `claude` / `copilot` / `codex` on PATH  -> that one
+4  two or more on PATH and nothing above decided  -> claude, and say so
+5  none on PATH -> claude, and print KEEL_EXECUTOR_UNAVAILABLE; the runtime still
+                   connects and reports EXECUTOR_UNAVAILABLE per job
 ```
 
 **Two host answers mean no answer**, and that is not hypothetical: `COPILOT_AGENT_SESSION_ID` leaks
@@ -245,7 +246,8 @@ arbitrarily deep down a process tree — it means "somewhere in my ancestry", ne
 
 ```
 KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=GitHub Copilot CLI 1.0.83. model=auto
-KEEL_EXECUTOR=claude source=ambiguous-path  # both CLIs on PATH; pass --executor to choose
+KEEL_EXECUTOR=codex source=host binary=/opt/homebrew/bin/codex version=codex-cli 0.154.0 model=default
+KEEL_EXECUTOR=claude source=ambiguous-path  # more than one host CLI on PATH; pass --executor to choose
 KEEL_EXECUTOR_UNAVAILABLE=copilot           # not on PATH; jobs report EXECUTOR_UNAVAILABLE
 ```
 
@@ -409,6 +411,45 @@ founder and the referee should both see *why*, not only *what*.
   S-001 green through it, the instruction eval's run of record green on it at the current
   `MARKS_VERSION`, and the release notes naming the CLI version range. Only the first is true
   today.
+
+- **`codex`** — the third real executor (spec `008-codex-executor`; decision 11's pattern,
+  measured 2026-09-12 against codex-cli 0.154.0). Same ABC, same dict, same three exceptions,
+  and the same prompt arrangement as Copilot: the system prompt and the envelope schema travel in
+  the prompt, and the runtime's own validator enforces the schema.
+
+  ```
+  codex exec -                      # non-interactive; `-` reads the prompt from **stdin**
+    --json --ephemeral              # one event per line; no session file written
+    --sandbox read-only --skip-git-repo-check
+    --ignore-user-config            # the founder's own config.toml stays out of a job;
+                                    # "auth still uses CODEX_HOME" (the CLI's words)
+    --color never
+    --disable <feature>             # thirteen feature flags, one per tool the model could have:
+                                    # shell_tool unified_exec view_image sleep_tool skill_search
+                                    # tool_suggest hooks plugins memories apps browser_use
+                                    # computer_use image_generation
+    -C <job_dir>
+    [-m <slug>]                     # KEEL_CODEX_MODEL; unpinned prints model=default
+  ```
+
+  **The closed shape is feature flags, and it was proved before it was trusted**: a run so
+  flagged, asked to run `ls -a`, answered *"no shell execution tool is available in this
+  session"* and emitted no `command_execution` item; the same ask on an open run emitted
+  `/bin/zsh -lc 'ls -a'`. Both recordings are in `tests/fixtures/codex/`, and the executor still
+  checks every job's stream for any item that is not an `agent_message` or `reasoning` -- a tool
+  item fails the job before its answer is used.
+
+  **No `--output-schema`**, though the flag exists: it hands the schema to OpenAI's *strict*
+  structured outputs, which refuse any object whose `required` does not name every property, and
+  Keel's envelope is an either/or (`result` on COMPLETED, `questions` on NEEDS_INPUT). Measured:
+  `invalid_json_schema ... Missing 'result'`. So the schema is in the prompt, as on Copilot.
+
+  **Authentication** is `codex login` (a ChatGPT plan through the browser, a device code, or an
+  API key), stored under `CODEX_HOME`; the executor hands the child that one variable and
+  `OPENAI_*`, and never the parent session's own `CODEX_THREAD_ID`, `CODEX_SANDBOX` or the rest.
+  An unauthenticated run was measured: exit 1, `error` events and a `turn.failed` all carrying
+  `401 Unauthorized: Missing bearer or basic authentication`, which is the marker. **Cost is
+  tokens against the plan** and is reported as `tokens`, never converted into dollars.
 
 - **`stub`** — deterministic, test-only. Selected with `--executor stub`, never a
   default. Driven entirely by `request_payload.input.content`: see
