@@ -3,6 +3,26 @@ name = "keel-runtime"
 version = "0.2.1"
 description = "Keel's local runtime: authorizes a device against Keel Cloud, long-polls for inference jobs, and executes them locally (spec 020 FR-024..028)."
 requires-python = ">=3.9"
+# What PyPI shows (keel-marketing `funnels-design.md` §2.3): the README as the long description,
+# the licence, where the source and the product are. Nothing here changes what the package does.
+readme = "README.md"
+license = {text = "Apache-2.0"}
+keywords = ["keel", "customer-discovery", "agent", "runtime", "claude-code", "copilot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
 # Core has no required dependencies -- the standard library alone (spec FR-025). Optional
 # accelerators below are used only when importable; the E2E test (spec SC-002) runs this
 # package uninstalled with bare python3, so nothing here may become a hard requirement.
@@ -17,6 +37,12 @@ schema = ["jsonschema"]
 # and only these. Neither `keyring` nor `jsonschema` is ever installed there: the shipped
 # behaviour is the one without them (design §4.4, R-2), so that is the configuration tested.
 dev = ["pytest", "PyYAML"]
+
+[project.urls]
+Homepage = "https://keeldiscovery.com"
+Source = "https://github.com/keeldiscovery/keel-runtime"
+Issues = "https://github.com/keeldiscovery/keel-runtime/issues"
+Changelog = "https://github.com/keeldiscovery/keel-runtime/commits/master"
 
 [project.scripts]
 keel = "keel_runtime.cli:main"
