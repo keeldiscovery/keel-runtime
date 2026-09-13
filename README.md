@@ -272,7 +272,8 @@ on this machine, so a deprecated model is one row there, not a release here.
 **When the CLI refuses the named model** — each host says so in its own measured words
 (`tests/fixtures/<host>/MANIFEST.json`, 2026-09-13): Claude Code's *"issue with the selected
 model"*, Copilot's *`Model "…" from --model flag is not available.`*, Codex's *"model is not
-supported when using Codex with a ChatGPT account"* — the job is run **once more, unpinned**, and
+supported when using Codex with a ChatGPT account"* on a plan sign-in and the API's 404 *"does not
+exist or you do not have access to it"* on an API-key one — the job is run **once more, unpinned**, and
 completes on the default. Any other failure is what it was: no retry.
 
 **The completion says what ran.** `/complete` and `/fail` carry an optional `execution` object,

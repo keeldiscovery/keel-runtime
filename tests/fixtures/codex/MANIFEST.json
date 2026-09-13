@@ -61,6 +61,16 @@
    "exit_code": 1,
    "measured": "2026-09-13, same argv with `-m not-a-model`",
    "note": "an unknown name is refused with the same 400 sentence, preceded by an `item.completed` whose item is `type: error`, \"Model metadata for `not-a-model` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.\" -- the executor's per-job closed-shape scan must not mistake that error item for a tool."
+  },
+  "unsupported-model-on-api-key.jsonl": {
+   "verbatim": false,
+   "exit_code": 1,
+   "measured": "2026-09-13, codex-cli 0.154.0, an isolated CODEX_HOME signed in with the founder's OpenAI API key (`codex login --with-api-key`), `-m gpt-5.5-mini` on the closed argv",
+   "note": "spec 009 FR-006, the API-key half of this host's model-refusal marker: five WebSocket reconnect `error` events, an `item.completed` error item (the fallback to HTTPS), five more, one final `error` and the `turn.failed`, every one carrying the API's 404 -- \"The model `gpt-5.5-mini` does not exist or you do not have access to it.\" Scrubbed: each `cf-ray:` and `request id: req_...` value replaced with <scrubbed>; nothing else touched. Models the key does serve, measured the same day: gpt-6-astra, gpt-5.6-terra, gpt-5.6-luna, gpt-5.6-sol, gpt-5.5, gpt-5.4-mini, gpt-5-mini, gpt-5-nano."
+  },
+  "unsupported-model-on-api-key.stderr": {
+   "verbatim": true,
+   "note": "only the CLI's `Reading additional input from stdin...` notice"
   }
  }
 }

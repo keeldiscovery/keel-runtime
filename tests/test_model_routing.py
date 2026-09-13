@@ -236,6 +236,20 @@ class CodexRefusalRetryTest(codex_tests._FakeCodexCase):
         self.assertTrue(any(e.get("type") == "turn.failed" for e in self.executor.last_events))
         self.assertTrue(any(e.get("type") == "turn.completed" for e in self.executor.last_events))
 
+    def test_the_api_key_refusal_is_retried_the_same_way(self):
+        """Measured 2026-09-13 on an API-key sign-in: the 404 "does not exist or you do not have
+        access to it", repeated through the reconnects (`unsupported-model-on-api-key.jsonl`)."""
+        self._queue(
+            {"stdout": _fixture("codex", "unsupported-model-on-api-key.jsonl"),
+             "stderr": _fixture("codex", "unsupported-model-on-api-key.stderr"), "returncode": 1},
+            {"stdout": _fixture("codex", "completed.jsonl"), "returncode": 0},
+        )
+        answer = self.executor.execute(codex_tests._request(model="gpt-5.5-mini"))
+        self.assertEqual(answer["outcome"], "COMPLETED")
+        self.assertEqual(len(self._records()), 2)
+        self.assertNotIn("-m", self._records()[1]["argv"])
+        self.assertTrue(self.executor.last_retried_unpinned)
+
     def test_an_unknown_name_is_refused_the_same_way(self):
         self._queue(
             {"stdout": _fixture("codex", "unknown-model.jsonl"), "returncode": 1},
@@ -371,11 +385,16 @@ class TheMarkersAreTheMeasuredOnesTest(unittest.TestCase):
     """A marker nobody recorded is not a marker: each constant is a substring of its fixture."""
 
     def test_each_marker_is_in_its_recording(self):
-        codex = _fixture("codex", "unsupported-model-on-plan.jsonl").lower()
+        codex = (_fixture("codex", "unsupported-model-on-plan.jsonl")
+                 + _fixture("codex", "unsupported-model-on-api-key.jsonl")).lower()
         copilot = _fixture("copilot", "unknown-model.stderr").lower()
         claude = (_fixture("claude", "unknown-model.jsonl") + _fixture("claude", "unknown-model.stderr")).lower()
         for marker in CODEX_MODEL_REFUSAL_MARKERS:
             self.assertIn(marker, codex)
+        # and each Codex recording carries one of the two -- a plan refusal and an API-key one
+        for name in ("unsupported-model-on-plan.jsonl", "unsupported-model-on-api-key.jsonl"):
+            text = _fixture("codex", name).lower()
+            self.assertTrue(any(marker in text for marker in CODEX_MODEL_REFUSAL_MARKERS), name)
         for marker in COPILOT_MODEL_REFUSAL_MARKERS:
             self.assertIn(marker, copilot)
         for marker in CLAUDE_MODEL_REFUSAL_MARKERS:

@@ -1811,10 +1811,14 @@ def _mentions_codex_auth_failure(text) -> bool:
 # supported when using Codex with a ChatGPT account." -- and stderr holds only the stdin notice
 # (`tests/fixtures/codex/unsupported-model-on-plan.{jsonl,stderr}`). An unknown name
 # (`-m not-a-model`) is refused with the same sentence, preceded by an `item.completed` error
-# item "Model metadata for `not-a-model` not found" (`unknown-model.jsonl`). The marker is the
-# sentence's core, case-folded; an API-key sign-in's own wording is not yet measured.
+# item "Model metadata for `not-a-model` not found" (`unknown-model.jsonl`). On an **API-key**
+# sign-in the same ask is refused with the API's 404 instead -- "The model `gpt-5.5-mini` does not
+# exist or you do not have access to it." -- repeated through five WebSocket reconnects, the HTTPS
+# fallback and five more before the `turn.failed` (`unsupported-model-on-api-key.jsonl`, measured
+# the same day). Both markers are the sentence's core, case-folded.
 CODEX_MODEL_REFUSAL_MARKERS = (
     "model is not supported when using codex",
+    "does not exist or you do not have access to it",
 )
 
 

@@ -13,6 +13,8 @@
 
 - [X] T001 Codex 0.154.0 on the plan, `-m gpt-5.5-mini` and `-m not-a-model` with an isolated
       `CODEX_HOME` → `codex/unsupported-model-on-plan.{jsonl,stderr}`, `codex/unknown-model.jsonl`.
+- [X] T001b Codex 0.154.0 on an API-key home, `-m gpt-5.5-mini` → `codex/unsupported-model-on-api-key.{jsonl,stderr}`
+      (cf-ray and request ids scrubbed); second marker added.
 - [X] T002 Copilot 1.0.83, the closed argv with `--model not-a-model` → `copilot/unknown-model.stderr`.
 - [X] T003 Claude Code 2.1.270, the closed argv with `--model not-a-model` →
       `claude/unknown-model.{jsonl,stderr}` (init event scrubbed of the machine's inventory) and

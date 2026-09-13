@@ -1,0 +1,14 @@
+{"type":"thread.started","thread_id":"01a09878-7049-72a3-b2b4-21ca5eb6280e"}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it.)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it.)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it.)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it.)"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Falling back from WebSockets to HTTPS transport. unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it."}}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>)"}
+{"type":"error","message":"unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>"}
+{"type":"turn.failed","error":{"message":"unexpected status 404 Not Found: The model `gpt-5.5-mini` does not exist or you do not have access to it., url: https://api.openai.com/v1/responses, cf-ray: <scrubbed>, request id: <scrubbed>"}}

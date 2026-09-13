@@ -34,7 +34,9 @@ Each host's own words for a model it will not serve, recorded verbatim in
    one `error` and one `turn.failed`, both carrying the API's 400 — *"The 'gpt-5.5-mini' model
    is not supported when using Codex with a ChatGPT account."* — nothing on stderr but the stdin
    notice. `-m not-a-model` is refused with the same sentence after an `item.completed` error
-   item *"Model metadata for `not-a-model` not found"*.
+   item *"Model metadata for `not-a-model` not found"*. On an **API-key** sign-in the refusal is
+   the API's 404, *"The model `gpt-5.5-mini` does not exist or you do not have access to it."*,
+   repeated through the reconnects and the HTTPS fallback (`unsupported-model-on-api-key.jsonl`).
 2. **Copilot CLI 1.0.83, `--model not-a-model`**: exit 1, **no JSONL**, one stderr line —
    *`Error: Model "not-a-model" from --model flag is not available.`* Distinct from the CAPIError
    400 *"The requested model is not supported"* an invalid token once produced inside a
@@ -109,8 +111,10 @@ the table's owner can act.
 
 ## Assumptions
 
-- The Codex API-key sign-in's own wording for a model it will not serve is not measured; a
-  marker nobody recorded is not a marker, so an API-key refusal that reads differently is not
-  retried until it is recorded (design §6).
+- The Codex API-key sign-in's own wording is measured too (2026-09-13, `-m gpt-5.5-mini` on an
+  API-key home: the API's 404 *"The model `gpt-5.5-mini` does not exist or you do not have
+  access to it."*, `codex/unsupported-model-on-api-key.jsonl`), so both sign-ins retry. Models
+  that key serves, for the table's owner: gpt-6-astra, gpt-5.6-terra, gpt-5.6-luna, gpt-5.6-sol,
+  gpt-5.5, gpt-5.4-mini, gpt-5-mini, gpt-5-nano.
 - A retry costs one more CLI call; the cloud's table is expected to name models a host can serve
   (design §7's process rule), so retries are a signal for the table's owner, not a steady state.
