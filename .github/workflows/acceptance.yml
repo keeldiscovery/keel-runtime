@@ -552,8 +552,9 @@ jobs:
       # Windows arrives as its first line only, so this step answers "1 lines" and fails; there
       # is no other way to tell from the outside, which is exactly why it exists.
       #
-      # `KEEL_COPILOT_MODEL` pins the model (design C-5: an unpinned run is never silently
-      # measured). It is pinned to a slug rather than left on `auto` for a second reason found on
+      # `KEEL_COPILOT_MODEL` here is this workflow's own pin, passed as the request's `model`
+      # the way the cloud's job map would be (spec 009; the runtime reads no such variable
+      # since 0.5.0) -- design C-5: an unpinned run is never silently measured. It is pinned to a slug rather than left on `auto` for a second reason found on
       # 2026-09-10: 1.0.83 emits the `phase: "final_answer"` marker `CopilotExecutor` reads on a
       # `gpt-5.6-luna` reply but *not* on a `claude-sonnet-5` one, so an unpinned run can fail
       # for a reason that has nothing to do with the transport this step is testing.
@@ -584,6 +585,9 @@ jobs:
               job_id="acceptance-multiline",
               interaction_id="acceptance",
               turn_number=1,
+              # spec 009: the model is the job's, not the executor's -- what the poller reads
+              # from `request_payload["model"]["copilot"]` in production is set here directly.
+              model=os.environ.get("KEEL_COPILOT_MODEL") or None,
               request_payload={
                   "instruction": (
                       "Read the source material. Answer with a summary of exactly the form "
@@ -605,11 +609,7 @@ jobs:
           )
 
           with tempfile.TemporaryDirectory() as home:
-              executor = CopilotExecutor(
-                  home=home,
-                  timeout_seconds=300.0,
-                  model=os.environ.get("KEEL_COPILOT_MODEL") or None,
-              )
+              executor = CopilotExecutor(home=home, timeout_seconds=300.0)
               answer = executor.execute(request)
               print("answer:", json.dumps(answer))
               print("envelope:", json.dumps(executor.last_envelope))
