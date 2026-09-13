@@ -424,11 +424,16 @@ class TheResponseSectionNamesTheTwoRulesTest(unittest.TestCase):
         self.assertIn("percent", response)
         self.assertIn("ISO", response)
 
-    def test_the_claude_shaped_prompt_is_unchanged(self):
+    def test_the_claude_shaped_prompt_carries_them_after_the_contract(self):
+        """Claude's own run of record (2026-09-13, sonnet/haiku) missed one brief on "proxy":
+        the same two sentences sit right under CONTRACT, still outside the KEEL-DATA fence."""
         prompt = _render_prompt(self.sections)
-        self.assertNotIn("proxy", prompt)
-        self.assertNotIn("working-weeks", prompt)
+        contract_end = prompt.index("\n\n" + executor_module._SOURCE_MATERIAL_HEADING)
+        between = prompt[prompt.index("CONTRACT"):contract_end]
+        self.assertIn('never the word "proxy"', between)
+        self.assertIn("working-weeks", between)
         self.assertNotIn("RESPONSE", prompt)
+        self.assertLess(prompt.index("proxy"), prompt.index("<<<KEEL-DATA"))
 
 
 if __name__ == "__main__":  # pragma: no cover

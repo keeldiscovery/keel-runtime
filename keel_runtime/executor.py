@@ -202,6 +202,7 @@ def _render_prompt(sections: dict) -> str:
         "",
         "CONTRACT",
         json.dumps(sections["contract"], indent=2),
+        _TWO_RULES_SENTENCES,
         "",
         _SOURCE_MATERIAL_HEADING,
         "",
@@ -1190,17 +1191,24 @@ COPILOT_AUTH_MARKERS = (
 # "proxy" in seven of twenty-one briefs, both of which the instruction text already forbids. The
 # two sentences below repeat those two rules where this host reads them best, in the RESPONSE
 # section. Host-neutral (Codex reads the same prompt), and a prompt change, never a mark change.
-_COPILOT_RESPONSE_SECTION = (
-    "RESPONSE\n"
-    "Reply with exactly one JSON object matching the schema below, and nothing else: no "
-    "prose before it, no explanation after it, no code fence around it.\n"
+# The two rules every host is reminded of beside its response contract (spec 009, keel-e2e-eval
+# DRIFT #67 for Copilot; Claude's 2026-09-13 run of record missed one brief on "proxy" too):
+# fixed-word fields use the listed word exactly, and a forbidden word is never written.
+_TWO_RULES_SENTENCES = (
     "Where the task names a fixed set of words for a field, use one of them exactly as spelled "
     "and never coin another: a measure's unit is a duration in minutes, hours, days, weeks, "
     "months, years, working-hours, working-days or working-weeks; money in the market's own ISO "
     "currency code; a share in percent; a physical quantity in the market's own family; a count "
     "as the plain noun being counted. "
     "Where the task forbids a word, do not write it in any form; in particular never the word "
-    "\"proxy\" -- say the closest thing they already buy today.\n"
+    "\"proxy\" -- say the closest thing they already buy today."
+)
+
+_COPILOT_RESPONSE_SECTION = (
+    "RESPONSE\n"
+    "Reply with exactly one JSON object matching the schema below, and nothing else: no "
+    "prose before it, no explanation after it, no code fence around it.\n"
+    + _TWO_RULES_SENTENCES + "\n"
     "{schema}"
 )
 
