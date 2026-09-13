@@ -122,6 +122,13 @@ def build_parser() -> argparse.ArgumentParser:
         "routing",
     )
     connect.add_argument(
+        "--claude-model",
+        dest="claude_model",
+        help="the --model alias or name to pin the claude executor to (sonnet, haiku, opus, or a "
+        "full name); falls back to KEEL_CLAUDE_MODEL, then to config.json's claude_model, then "
+        "to the account's own default",
+    )
+    connect.add_argument(
         "--codex-model",
         dest="codex_model",
         help="the -m slug to pin the codex executor to; falls back to KEEL_CODEX_MODEL, then to "
@@ -262,6 +269,8 @@ def executor_startup_lines(config) -> list:
         # Same rule, this host's word: unpinned, Codex answers with the account's default model,
         # and `model=default` says so rather than leaving it to be inferred.
         parts.append(f"model={config.codex_model or 'default'}")
+    if name == "claude":
+        parts.append(f"model={getattr(config, 'claude_model', None) or 'default'}")
 
     line = " ".join(parts)
     if source == "ambiguous-path":
@@ -324,6 +333,7 @@ def _run_connect(args) -> int:
         timeout_seconds=config.job_timeout_seconds,
         copilot_model=config.copilot_model,
         codex_model=config.codex_model,
+        claude_model=config.claude_model,
     )
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)

@@ -264,7 +264,10 @@ founder and the referee should both see *why*, not only *what*.
   instruction:
 
   ```
-  claude -p
+
+  **Pinned with `--claude-model` / `KEEL_CLAUDE_MODEL` / `config.json`'s `claude_model`** (2026-09-12):
+  an alias (`sonnet`, `haiku`, `opus`) or a full model name, passed as `claude -p --model`. Unpinned,
+  the account's configured default answers and the startup line says `model=default`.  claude -p
     --tools ""                      # no built-in tools at all
     --strict-mcp-config             # no MCP servers from any config
     --setting-sources ""            # ignore user, project and local settings (CLAUDE.md included)
@@ -348,6 +351,12 @@ founder and the referee should both see *why*, not only *what*.
     -C <job_dir>
     [--model <slug>]                # KEEL_COPILOT_MODEL; unpinned prints model=auto
   ```
+
+  **The answer is read with or without a `phase`** (keel-e2e-eval DRIFT #59, fixed 2026-09-12):
+  OpenAI-vendored models on this CLI mark their final message `phase: final_answer`; Anthropic-vendored
+  ones (`claude-sonnet-5`, the upgraded plan's default) send the same content with no `phase` at
+  all, and used to be thrown away. When no event in a stream carries a phase, the last assistant
+  message with text and no tool requests is the answer.
 
   **The prompt goes on stdin on both executors, never in argv** — `claude -p` and `copilot -p ""`
   each read it from there (measured against Copilot CLI 1.0.83; there is no `--prompt-file` and

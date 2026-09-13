@@ -366,13 +366,20 @@ class TheStartupLineTest(_WhichCase):
         )[0]
         self.assertIn("model=gpt-6-astra", pinned)
 
-    def test_the_claude_line_carries_no_model_key(self):
+    def test_the_claude_line_says_model_default_unless_pinned(self):
+        """2026-09-12: the Claude executor gained a pin (`--claude-model` / KEEL_CLAUDE_MODEL /
+        config.json's claude_model). Unpinned, the account's configured default answers and the
+        line says so; pinned, the line carries the alias or name."""
         self._on_path("claude")
         self._no_version_probe()
         line = cli_module.executor_startup_lines(
             self._config(executor="claude", executor_source="path")
         )[0]
-        self.assertNotIn("model=", line)
+        self.assertIn("model=default", line)
+        pinned = cli_module.executor_startup_lines(
+            self._config(executor="claude", executor_source="flag", claude_model="sonnet")
+        )[0]
+        self.assertIn("model=sonnet", pinned)
 
     def test_the_version_is_printed_when_it_is_cheap_to_have(self):
         self._on_path("copilot")

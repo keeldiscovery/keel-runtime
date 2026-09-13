@@ -835,3 +835,33 @@ class GetExecutorTest(unittest.TestCase):
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(unittest.main())
+
+
+
+class TheNoPhaseStreamTest(_FakeCopilotCase):
+    """keel-e2e-eval DRIFT #59, measured on CLI 1.0.83: an Anthropic-vendored model emits
+    `assistant.message` with a correct `content` and **no `phase` key**, and the reader threw the
+    answer away. The recording is `completed.jsonl` with every `phase` removed: the same answer,
+    the way `claude-sonnet-5` sends it."""
+
+    def test_an_answer_with_no_phase_anywhere_is_still_the_answer(self):
+        stripped = []
+        for line in _fixture("completed.jsonl").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            data = event.get("data")
+            if isinstance(data, dict):
+                data.pop("phase", None)
+            stripped.append(json.dumps(event))
+        self._queue_stdout("\n".join(stripped) + "\n")
+        answer = self.executor.execute(_request())
+        self.assertEqual(answer["outcome"], "COMPLETED")
+        self.assertEqual(answer["result"]["summary"],
+                         "We help corner shops count stock without using spreadsheets.")
+
+    def test_a_stream_that_carries_phases_still_reads_only_the_final_answer(self):
+        self._queue_stdout(_fixture("completed.jsonl"))
+        answer = self.executor.execute(_request())
+        self.assertEqual(answer["outcome"], "COMPLETED")

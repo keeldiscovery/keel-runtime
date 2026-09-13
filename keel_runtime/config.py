@@ -106,6 +106,11 @@ DEFAULT_COPILOT_MODEL = ""
 ENV_CODEX_MODEL = "KEEL_CODEX_MODEL"
 DEFAULT_CODEX_MODEL = ""
 
+# The Claude pin (2026-09-12): an alias or a full model name for `claude -p --model`. Unpinned,
+# the account's configured default answers and the startup line says `model=default`.
+ENV_CLAUDE_MODEL = "KEEL_CLAUDE_MODEL"
+DEFAULT_CLAUDE_MODEL = ""
+
 # Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
 # KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".
 ENV_BASE_URL = "KEEL_BASE_URL"
@@ -175,6 +180,7 @@ class RuntimeConfig:
     executor_source: str = "default"
     copilot_model: Optional[str] = None
     codex_model: Optional[str] = None
+    claude_model: Optional[str] = None
     # spec `007-launcher-version`: what launched this runtime, when the launcher said
     # (`--launcher-version` / `KEEL_LAUNCHER_VERSION`); `None` when nothing did. Written into
     # every heartbeat so `status` can report it and a newer skill can compare.
@@ -335,6 +341,19 @@ def resolve_codex_model(args, file_config=None, environ=None):
         or environ.get(ENV_CODEX_MODEL)
         or file_config.get("codex_model")
         or DEFAULT_CODEX_MODEL
+    )
+    return value or None
+
+
+def resolve_claude_model(args, file_config=None, environ=None):
+    """`--claude-model` > `KEEL_CLAUDE_MODEL` > `config.json["claude_model"]` > the account's default."""
+    file_config = file_config or {}
+    environ = os.environ if environ is None else environ
+    value = (
+        getattr(args, "claude_model", None)
+        or environ.get(ENV_CLAUDE_MODEL)
+        or file_config.get("claude_model")
+        or DEFAULT_CLAUDE_MODEL
     )
     return value or None
 
@@ -614,6 +633,7 @@ def load(args) -> RuntimeConfig:
     executor, executor_source = resolve_executor(args, file_config)
     copilot_model = resolve_copilot_model(args, file_config)
     codex_model = resolve_codex_model(args, file_config)
+    claude_model = resolve_claude_model(args, file_config)
 
     credential_backend = (
         getattr(args, "credential_backend", None)
@@ -661,6 +681,7 @@ def load(args) -> RuntimeConfig:
         executor_source=executor_source,
         copilot_model=copilot_model,
         codex_model=codex_model,
+        claude_model=claude_model,
         launcher_version=(getattr(args, "launcher_version", None)
                           or os.environ.get(ENV_LAUNCHER_VERSION) or None),
     )

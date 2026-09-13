@@ -810,12 +810,18 @@ class ClaudeCodeExecutor(Executor):
         budget_usd: float = DEFAULT_JOB_BUDGET_USD,
         max_turns: int = DEFAULT_JOB_MAX_TURNS,
         timeout_seconds: float = DEFAULT_JOB_TIMEOUT_SECONDS,
+        model: str | None = None,
     ):
         self.binary = binary
         self.home = Path(home) if home is not None else DEFAULT_HOME
         self.budget_usd = budget_usd
         self.max_turns = max_turns
         self.timeout_seconds = timeout_seconds
+        # The founder's pin (2026-09-12: "for this product to work we don't need the most
+        # advanced model"): `--model` takes an alias (`sonnet`, `haiku`, `opus`) or a full name
+        # (`claude --help`). Unpinned, the CLI answers with the account's configured default and
+        # the KEEL_EXECUTOR= line says `model=default`. `KEEL_CLAUDE_MODEL` / `claude_model`.
+        self.model = model or None
         self.last_envelope: dict | None = None
         self.last_request_sections: dict | None = None
         self.last_events: list | None = None
@@ -843,7 +849,7 @@ class ClaudeCodeExecutor(Executor):
             json.dumps(envelope_schema),
             "--system-prompt",
             SYSTEM_PROMPT,
-        ]
+        ] + (["--model", self.model] if self.model else [])
 
     def _invoke(self, prompt: str, envelope_schema: dict, job_dir: Path):
         """Runs the CLI once, parses its `stream-json` stdout, and returns
@@ -1134,16 +1140,28 @@ def _copilot_final_answer(events: list):
     `final_answer`-phase message carries the whole answer.
     """
     answer = None
+    saw_a_phase = False
+    fallback = None
     for event in events:
         if event.get("type") != "assistant.message":
             continue
         data = event.get("data") or {}
-        if data.get("phase") != "final_answer":
-            continue
         content = data.get("content")
-        if isinstance(content, str) and content.strip():
-            answer = content
-    return answer
+        has_text = isinstance(content, str) and content.strip()
+        if data.get("phase"):
+            saw_a_phase = True
+            if data.get("phase") == "final_answer" and has_text:
+                answer = content
+        elif has_text and not data.get("toolRequests"):
+            fallback = content
+    if answer is not None or saw_a_phase:
+        return answer
+    # keel-e2e-eval DRIFT #59 (2026-09-10), measured on Copilot CLI 1.0.83: an Anthropic-vendored
+    # model (`claude-sonnet-5`, the upgraded plan's default) emits `assistant.message` with a
+    # correct, complete `content` and **no `phase` key at all**, so the rule above threw every
+    # right answer away. When no event in the stream carries a phase, the last assistant message
+    # with text and no tool requests is the answer -- the same message the phase would have named.
+    return fallback
 
 
 def _copilot_turn_count(events: list) -> int:
@@ -1796,22 +1814,26 @@ class CodexExecutor(Executor):
         return envelope
 
 
-def _make_claude(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model):
+def _make_claude(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model,
+                 claude_model=None):
     return ClaudeCodeExecutor(
         home=home,
         budget_usd=budget_usd,
         max_turns=max_turns,
         timeout_seconds=timeout_seconds,
+        model=claude_model,
     )
 
 
-def _make_copilot(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model):
+def _make_copilot(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model,
+                  claude_model=None):
     # `budget_usd` and `max_turns` are accepted and dropped on purpose: this CLI has no flag
     # for either, and silently pretending otherwise would be worse than saying so here (C-7).
     return CopilotExecutor(home=home, timeout_seconds=timeout_seconds, model=copilot_model)
 
 
-def _make_codex(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model):
+def _make_codex(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model,
+                claude_model=None):
     # As for Copilot: no dollar budget and no turn cap exist on this CLI, and the timeout is ours.
     return CodexExecutor(home=home, timeout_seconds=timeout_seconds, model=codex_model)
 
@@ -1843,6 +1865,7 @@ def get_executor(
     context_keys_path: str | Path | None = None,
     copilot_model: str | None = None,
     codex_model: str | None = None,
+    claude_model: str | None = None,
 ) -> Executor:
     if name == "stub":
         # Lazy import: keel_runtime.testing is a test-only dependency of the package,
@@ -1864,4 +1887,5 @@ def get_executor(
     if factory is None:
         known = ", ".join(sorted(list(_EXECUTORS.keys()) + ["stub", "scripted"]))
         raise SystemExit(f"unknown executor '{name}'; known executors: {known}")
-    return factory(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model)
+    return factory(home, budget_usd, max_turns, timeout_seconds, copilot_model, codex_model,
+                   claude_model)

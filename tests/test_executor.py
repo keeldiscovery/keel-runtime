@@ -1028,3 +1028,19 @@ class RecoveryNamesTheMissingKeyTest(_ExecutorTestBase):
         )
         self.assertIsNone(executor_module._missing_key("final_answer is not JSON: line 1"))
         self.assertIsNone(executor_module._missing_key(None))
+
+
+
+class TheClaudeModelPinTest(unittest.TestCase):
+    """2026-09-12: `--model` is passed when a pin is given and absent when it is not."""
+
+    def test_the_argv_carries_the_pin_only_when_there_is_one(self):
+        from keel_runtime.executor import ClaudeCodeExecutor
+        unpinned = ClaudeCodeExecutor(home="/tmp/x")
+        unpinned._resolved_binary = "claude"
+        argv = unpinned._build_argv({"type": "object"})
+        self.assertNotIn("--model", argv)
+        pinned = ClaudeCodeExecutor(home="/tmp/x", model="sonnet")
+        pinned._resolved_binary = "claude"
+        argv = pinned._build_argv({"type": "object"})
+        self.assertEqual(argv[argv.index("--model") + 1], "sonnet")
