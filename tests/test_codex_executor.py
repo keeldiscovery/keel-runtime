@@ -94,6 +94,7 @@ def _request(
     content="Independent restaurant managers lose hours each week reconciling deliveries.",
     response_contract=None,
     job_id="job-1",
+    model=None,
 ):
     return InferenceRequest(
         job_id=job_id,
@@ -106,6 +107,7 @@ def _request(
             "input": {"content": content},
             "response_contract": response_contract or _CONTRACT_COMPLETED,
         },
+        model=model,
     )
 
 
@@ -258,14 +260,18 @@ class ThePromptTest(_FakeCodexCase):
         self.assertEqual(Path(record["cwd"]).resolve(), job_dir.resolve())
         self.assertEqual(record["argv"][record["argv"].index("-C") + 1], str(job_dir))
 
-    def test_a_pinned_model_travels_as_dash_m_and_an_unpinned_one_sends_none(self):
+    def test_the_jobs_model_travels_as_dash_m_and_a_job_without_one_sends_none(self):
+        """spec 009: the model is the job's (`request.model`, the cloud's per-host routing), read
+        per call -- the same executor sends `-m` on one job and nothing on the next."""
         self._queue_stdout(_fixture("completed.jsonl"))
         self.executor.execute(_request())
         self.assertNotIn("-m", self._record()["argv"])
-        pinned = CodexExecutor(home=self.home, timeout_seconds=30.0, model="gpt-6-astra")
-        pinned.execute(_request(job_id="job-2"))
+        self.executor.execute(_request(job_id="job-2", model="gpt-6-astra"))
         argv = self._record(1)["argv"]
         self.assertEqual(argv[argv.index("-m") + 1], "gpt-6-astra")
+        self.assertEqual(self.executor.last_model_requested, "gpt-6-astra")
+        self.assertEqual(self.executor.last_model_used, "gpt-6-astra")
+        self.assertFalse(self.executor.last_retried_unpinned)
 
 
 # ---------------------------------------------------------------------- the environment (C-4)

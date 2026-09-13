@@ -262,7 +262,7 @@ class ConnectSupersededTest(unittest.TestCase):
             cli.agent_session_module, "create_agent_session", side_effect=_create_agent_session
         ), contextlib.redirect_stdout(io.StringIO()) as captured:
             exit_code = cli._run_connect(SimpleNamespace(
-                base_url=None, executor=None, host="auto", copilot_model=None, script=None,
+                base_url=None, executor=None, host="auto", script=None,
                 context_keys=None, home=str(self.home), credential_backend=None,
                 no_browser=True, log_level="INFO",
             ))

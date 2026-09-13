@@ -1,0 +1,17 @@
+{
+ "measured": "2026-09-13",
+ "cli": "Claude Code 2.1.270 (`claude --version`)",
+ "machine": "the founder's Mac (Apple Silicon, macOS 25.5.0), signed in with the founder's Claude plan",
+ "how": "`unknown-model.jsonl` is the stdout of one real `claude -p --tools \"\" --strict-mcp-config --setting-sources \"\" --no-session-persistence --max-turns 1 --max-budget-usd 0.2 --output-format stream-json --verbose --model not-a-model` with the prompt on stdin. The `system`/`init` event is scrubbed: `cwd` replaced, and the account's own inventory lists (slash_commands, skills, plugins, agents, memory paths, socket path, capabilities) emptied; every other field and every other event is verbatim. `.stderr` is verbatim.",
+ "recordings": {
+  "unknown-model.jsonl": {
+   "verbatim": false,
+   "exit_code": 1,
+   "note": "spec 009 FR-006, the model-refusal marker for this host. Three events: system/init (its `model` echoes the flag, `not-a-model`), one `assistant` message whose `model` is `<synthetic>` and whose text is the refusal, and a `result` with `is_error: true`, `subtype: success`, `terminal_reason: api_error`, `api_error_status` present, `total_cost_usd: 0`, and `result` = \"There's an issue with the selected model (not-a-model). It may not exist or you may not have access to it. Run --model to pick a different model.\" `CLAUDE_MODEL_REFUSAL_MARKERS` are substrings of that text and of the stderr line."
+  },
+  "unknown-model.stderr": {
+   "verbatim": true,
+   "note": "one line: `[claude-code:unrecognized_model] {\"model\":\"not-a-model\",\"query_source\":\"sdk\"}`"
+  }
+ }
+}

@@ -114,26 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="the host this runtime was launched under, when the caller knows (the skill does); "
         "'auto' reads the environment's own host markers instead",
     )
-    connect.add_argument(
-        "--copilot-model",
-        dest="copilot_model",
-        help="the --model slug to pin the copilot executor to (C-5); falls back to "
-        "KEEL_COPILOT_MODEL, then to config.json's copilot_model, then to Copilot's own "
-        "routing",
-    )
-    connect.add_argument(
-        "--claude-model",
-        dest="claude_model",
-        help="the --model alias or name to pin the claude executor to (sonnet, haiku, opus, or a "
-        "full name); falls back to KEEL_CLAUDE_MODEL, then to config.json's claude_model, then "
-        "to the account's own default",
-    )
-    connect.add_argument(
-        "--codex-model",
-        dest="codex_model",
-        help="the -m slug to pin the codex executor to; falls back to KEEL_CODEX_MODEL, then to "
-        "config.json's codex_model, then to the account's own default model",
-    )
+    # spec 009-model-routing: no `--<host>-model` flag. The model a job runs on comes with the
+    # job, from the cloud's routing table, and from nowhere else (design §6).
     connect.add_argument(
         "--script",
         dest="script",
@@ -235,12 +217,22 @@ def _binary_version(binary_path: str):
     return output.splitlines()[0].strip() if output else None
 
 
-def executor_startup_lines(config) -> list:
+def probe_host_cli(config):
+    """`(binary, binary_path, version)` for the executor's CLI: the name `EXECUTOR_BINARIES`
+    gives, where `PATH` has it (or `None`), and its `--version` line (or `None`). One probe per
+    connect, shared by the startup line and by the executor's `host_version` (spec 009)."""
+    binary = config_module.EXECUTOR_BINARIES.get(config.executor)
+    binary_path = shutil.which(binary) if binary else None
+    version = _binary_version(binary_path) if binary_path else None
+    return binary, binary_path, version
+
+
+def executor_startup_lines(config, probe=None) -> list:
     """design §5.3 / C-9: the `KEEL_EXECUTOR=` line, and the `KEEL_EXECUTOR_UNAVAILABLE=` line
     beneath it when the CLI that executor needs is not on `PATH`.
 
     ```
-    KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=1.0.83 model=auto
+    KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=1.0.83
     KEEL_EXECUTOR=claude source=ambiguous-path  # both CLIs on PATH; pass --executor to choose
     KEEL_EXECUTOR_UNAVAILABLE=copilot           # not on PATH; jobs report EXECUTOR_UNAVAILABLE
     ```
@@ -248,29 +240,19 @@ def executor_startup_lines(config) -> list:
     `source` says **why**, not only what. The runtime still connects when the CLI is missing:
     the founder's device is authorized either way, and each job reports `EXECUTOR_UNAVAILABLE`
     on its own -- which is a far better failure than refusing to connect at all.
+
+    No `model=` word since spec 009: there is no session-wide model any more. The model is per
+    job, named by the cloud, and recorded per job in `$KEEL_HOME/jobs/<id>/execution.json`.
     """
     name = config.executor
     source = config.executor_source
     parts = [f"KEEL_EXECUTOR={name}", f"source={source}"]
 
-    binary = config_module.EXECUTOR_BINARIES.get(name)
-    binary_path = shutil.which(binary) if binary else None
+    binary, binary_path, version = probe if probe is not None else probe_host_cli(config)
     if binary_path:
         parts.append(f"binary={binary_path}")
-        version = _binary_version(binary_path)
         if version:
             parts.append(f"version={version}")
-    if name == "copilot":
-        # `model=auto` is not decoration: C-5 says a Copilot subject that does not pin a model
-        # measures the router, not a model, so an unpinned run must be visible in the log
-        # rather than inferred from the absence of a word.
-        parts.append(f"model={config.copilot_model or 'auto'}")
-    if name == "codex":
-        # Same rule, this host's word: unpinned, Codex answers with the account's default model,
-        # and `model=default` says so rather than leaving it to be inferred.
-        parts.append(f"model={config.codex_model or 'default'}")
-    if name == "claude":
-        parts.append(f"model={getattr(config, 'claude_model', None) or 'default'}")
 
     line = " ".join(parts)
     if source == "ambiguous-path":
@@ -297,7 +279,8 @@ def _run_connect(args) -> int:
     )
     # C-9: **the runtime says which, always** -- one line at startup, into the log the skill is
     # already reading, in the same machine-readable family as `KEEL_USER_CODE=`.
-    for line in executor_startup_lines(config):
+    probe = probe_host_cli(config)
+    for line in executor_startup_lines(config, probe):
         print(line, flush=True)
     _install_heartbeat_shutdown_handlers(config)
     # keel-cloud DRIFT #51 / canon/designs/keel-disconnect-design.md §6(g): a launch record,
@@ -331,10 +314,11 @@ def _run_connect(args) -> int:
         budget_usd=config.job_budget_usd,
         max_turns=config.job_max_turns,
         timeout_seconds=config.job_timeout_seconds,
-        copilot_model=config.copilot_model,
-        codex_model=config.codex_model,
-        claude_model=config.claude_model,
     )
+    if getattr(executor, "host_key", None):
+        # spec 009: the CLI's own `--version` line, reported on every completion as
+        # `execution.host_version` -- the same probe the startup line printed.
+        executor.host_version = probe[2]
     store = CredentialStore(config.home, backend=config.credential_backend)
     client = CloudClient(base_url=config.base_url)
 

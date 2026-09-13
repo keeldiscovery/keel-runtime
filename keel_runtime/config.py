@@ -96,20 +96,10 @@ ENV_HOST_MARKERS = (
     "CODEX_SESSION_ID",
 )
 
-# spec 005 / C-5: the `--model` slug the Copilot path pins. Empty by default -- see
-# `CopilotExecutor.__init__` for why a constant here would be wrong.
-ENV_COPILOT_MODEL = "KEEL_COPILOT_MODEL"
-DEFAULT_COPILOT_MODEL = ""
-
-# spec 008: the `-m` slug the Codex path pins. Unpinned, `codex exec` answers with the account's
-# default model (measured `gpt-6-astra`), which the `KEEL_EXECUTOR=` line reports as `model=default`.
-ENV_CODEX_MODEL = "KEEL_CODEX_MODEL"
-DEFAULT_CODEX_MODEL = ""
-
-# The Claude pin (2026-09-12): an alias or a full model name for `claude -p --model`. Unpinned,
-# the account's configured default answers and the startup line says `model=default`.
-ENV_CLAUDE_MODEL = "KEEL_CLAUDE_MODEL"
-DEFAULT_CLAUDE_MODEL = ""
+# spec 009-model-routing: there is no model knob here. The model a job runs on comes with the
+# job (`request_payload["model"][<host>]`, keel-cloud `canon/designs/model-routing-design.md`
+# §6) and from nowhere else; the 0.4.0 `--<host>-model` flags, `KEEL_<HOST>_MODEL` variables
+# and `<host>_model` config keys were removed in 0.5.0.
 
 # Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
 # KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".
@@ -175,12 +165,8 @@ class RuntimeConfig:
     job_max_turns: int
     job_timeout_seconds: float
     # spec `005-copilot-executor`: **why** this executor was chosen, one of `EXECUTOR_SOURCES`,
-    # printed on the `KEEL_EXECUTOR=` startup line (C-9); and the `--model` slug the Copilot
-    # path pins, `None` when nothing pinned one (C-5).
+    # printed on the `KEEL_EXECUTOR=` startup line (C-9).
     executor_source: str = "default"
-    copilot_model: Optional[str] = None
-    codex_model: Optional[str] = None
-    claude_model: Optional[str] = None
     # spec `007-launcher-version`: what launched this runtime, when the launcher said
     # (`--launcher-version` / `KEEL_LAUNCHER_VERSION`); `None` when nothing did. Written into
     # every heartbeat so `status` can report it and a newer skill can compare.
@@ -317,45 +303,6 @@ def resolve_executor(args, file_config=None, environ=None):
     if len(present) > 1:
         return DEFAULT_EXECUTOR, "ambiguous-path"
     return DEFAULT_EXECUTOR, "default"
-
-
-def resolve_copilot_model(args, file_config=None, environ=None):
-    """`--copilot-model` > `KEEL_COPILOT_MODEL` > `config.json["copilot_model"]` > unpinned."""
-    file_config = file_config or {}
-    environ = os.environ if environ is None else environ
-    value = (
-        getattr(args, "copilot_model", None)
-        or environ.get(ENV_COPILOT_MODEL)
-        or file_config.get("copilot_model")
-        or DEFAULT_COPILOT_MODEL
-    )
-    return value or None
-
-
-def resolve_codex_model(args, file_config=None, environ=None):
-    """`--codex-model` > `KEEL_CODEX_MODEL` > `config.json["codex_model"]` > the account's default."""
-    file_config = file_config or {}
-    environ = os.environ if environ is None else environ
-    value = (
-        getattr(args, "codex_model", None)
-        or environ.get(ENV_CODEX_MODEL)
-        or file_config.get("codex_model")
-        or DEFAULT_CODEX_MODEL
-    )
-    return value or None
-
-
-def resolve_claude_model(args, file_config=None, environ=None):
-    """`--claude-model` > `KEEL_CLAUDE_MODEL` > `config.json["claude_model"]` > the account's default."""
-    file_config = file_config or {}
-    environ = os.environ if environ is None else environ
-    value = (
-        getattr(args, "claude_model", None)
-        or environ.get(ENV_CLAUDE_MODEL)
-        or file_config.get("claude_model")
-        or DEFAULT_CLAUDE_MODEL
-    )
-    return value or None
 
 
 def _default_home_root() -> Path:
@@ -631,9 +578,6 @@ def load(args) -> RuntimeConfig:
         )
 
     executor, executor_source = resolve_executor(args, file_config)
-    copilot_model = resolve_copilot_model(args, file_config)
-    codex_model = resolve_codex_model(args, file_config)
-    claude_model = resolve_claude_model(args, file_config)
 
     credential_backend = (
         getattr(args, "credential_backend", None)
@@ -679,9 +623,6 @@ def load(args) -> RuntimeConfig:
         job_max_turns=job_max_turns,
         job_timeout_seconds=job_timeout_seconds,
         executor_source=executor_source,
-        copilot_model=copilot_model,
-        codex_model=codex_model,
-        claude_model=claude_model,
         launcher_version=(getattr(args, "launcher_version", None)
                           or os.environ.get(ENV_LAUNCHER_VERSION) or None),
     )

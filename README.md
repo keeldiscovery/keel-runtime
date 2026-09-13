@@ -140,7 +140,6 @@ metadata would not answer — and a test asserts `pyproject.toml` agrees with it
 | `--base-url` | Keel Cloud base URL (e.g. `http://localhost:8080`) |
 | `--executor` | which `Executor` to run jobs with: `claude` (default; `claude-code` is a permanent alias), `copilot`, or `stub`/`scripted` (test-only, never a default). Named explicitly it wins outright -- **even if its CLI is missing**, which is reported per job rather than second-guessed here |
 | `--host` | the host this runtime was launched under: `claude`, `copilot`, or `auto` (default). The skill passes it; `auto` reads the environment's own host markers instead |
-| `--copilot-model` | the `--model` slug to pin the `copilot` executor to; unpinned by default |
 | `--script` | path to a scripted-executor script (only meaningful with `--executor scripted`; ignored with a warning otherwise) |
 | `--context-keys` | path to keel-cloud's exported `context-keys.json`, the scripted executor's screen-inference table (same rule: `scripted` only, ignored with a warning otherwise) |
 | `--home` | overrides `KEEL_HOME` for this run |
@@ -168,7 +167,6 @@ For each key, the first source that sets it wins: **CLI flag > environment varia
 | Base URL | `--base-url` | `KEEL_BASE_URL` | `base_url` — then the built-in `CLOUD_BASE_URL`, below |
 | Executor | `--executor` | `KEEL_EXECUTOR` | `executor` |
 | Host (a signal, below every explicit executor term) | `--host` | see *Which executor runs* | — |
-| Pinned Copilot model (`copilot` executor only) | `--copilot-model` | `KEEL_COPILOT_MODEL` | `copilot_model` |
 | Home directory | `--home` | `KEEL_HOME` | — |
 | Credential backend | `--credential-backend` | `KEEL_CREDENTIAL_BACKEND` | `credential_backend` |
 | Script path (`scripted` executor only) | `--script` | `KEEL_SCRIPT` | `script` |
@@ -245,14 +243,50 @@ arbitrarily deep down a process tree — it means "somewhere in my ancestry", ne
 **The runtime says which, always**, on the line after `KEEL_ENVIRONMENT=`:
 
 ```
-KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=GitHub Copilot CLI 1.0.83. model=auto
-KEEL_EXECUTOR=codex source=host binary=/opt/homebrew/bin/codex version=codex-cli 0.154.0 model=default
+KEEL_EXECUTOR=copilot source=host binary=/opt/homebrew/bin/copilot version=GitHub Copilot CLI 1.0.83.
+KEEL_EXECUTOR=codex source=host binary=/opt/homebrew/bin/codex version=codex-cli 0.154.0
 KEEL_EXECUTOR=claude source=ambiguous-path  # more than one host CLI on PATH; pass --executor to choose
 KEEL_EXECUTOR_UNAVAILABLE=copilot           # not on PATH; jobs report EXECUTOR_UNAVAILABLE
 ```
 
 `source` is one of `flag`, `env`, `config`, `host`, `path`, `ambiguous-path`, `default` — the
 founder and the referee should both see *why*, not only *what*.
+
+## Which model runs
+
+**The job says** (spec `009-model-routing`; design of record keel-cloud
+`canon/designs/model-routing-design.md`). Every inference job the cloud hands this runtime may
+carry a sixth key, a per-host map:
+
+```json
+"model": { "claude": "sonnet", "copilot": "gpt-5.6-luna", "codex": "gpt-5.6-terra" }
+```
+
+The runtime reads the entry for its own host and passes it to the CLI as that host's model flag
+(`claude --model`, `copilot --model`, `codex -m`). No entry for this host, or no key at all: no
+flag, and the CLI's own default answers, as before. **That is the whole rule.** There is no
+`--<host>-model` flag, no `KEEL_<HOST>_MODEL` variable and no `<host>_model` config key (the
+0.4.0 knobs were removed in 0.5.0): a model name lives in keel-cloud's routing table and nowhere
+on this machine, so a deprecated model is one row there, not a release here.
+
+**When the CLI refuses the named model** — each host says so in its own measured words
+(`tests/fixtures/<host>/MANIFEST.json`, 2026-09-13): Claude Code's *"issue with the selected
+model"*, Copilot's *`Model "…" from --model flag is not available.`*, Codex's *"model is not
+supported when using Codex with a ChatGPT account"* — the job is run **once more, unpinned**, and
+completes on the default. Any other failure is what it was: no retry.
+
+**The completion says what ran.** `/complete` and `/fail` carry an optional `execution` object,
+also written to `$KEEL_HOME/jobs/<id>/execution.json`:
+
+```json
+"execution": { "host": "codex", "host_version": "codex-cli 0.154.0",
+               "model_requested": "gpt-5.5-mini", "model_used": null, "retried_unpinned": true }
+```
+
+`model_used` is the model the CLI reported (Claude Code's `init` event; Copilot's `chosenModel`),
+else the requested one when it was not retried, else `null` — Codex names no model in its stream,
+so after a retry the default it fell back to is unknown here. The scripted and stub executors
+carry no `execution` and their bodies are unchanged.
 
 ## Executors
 
@@ -264,10 +298,7 @@ founder and the referee should both see *why*, not only *what*.
   instruction:
 
   ```
-
-  **Pinned with `--claude-model` / `KEEL_CLAUDE_MODEL` / `config.json`'s `claude_model`** (2026-09-12):
-  an alias (`sonnet`, `haiku`, `opus`) or a full model name, passed as `claude -p --model`. Unpinned,
-  the account's configured default answers and the startup line says `model=default`.  claude -p
+  claude -p
     --tools ""                      # no built-in tools at all
     --strict-mcp-config             # no MCP servers from any config
     --setting-sources ""            # ignore user, project and local settings (CLAUDE.md included)
@@ -277,6 +308,7 @@ founder and the referee should both see *why*, not only *what*.
     --output-format stream-json --verbose  # one JSON event per line, not raw prose
     --json-schema <contract>        # the job's own response contract, enforced by the CLI
     --system-prompt <fixed text>    # runtime-owned, identical for every job
+    [--model <alias|name>]          # the job's model["claude"], when the cloud named one
   ```
 
   The whole invocation is given `KEEL_JOB_TIMEOUT_SECONDS` (default **300s**) of wall
@@ -349,7 +381,7 @@ founder and the referee should both see *why*, not only *what*.
     --output-format json --log-level none
     --max-ai-credits <n>            # n >= 30, a soft cap, never a dollar figure
     -C <job_dir>
-    [--model <slug>]                # KEEL_COPILOT_MODEL; unpinned prints model=auto
+    [--model <slug>]                # the job's model["copilot"], when the cloud named one
   ```
 
   **The answer is read with or without a `phase`** (keel-e2e-eval DRIFT #59, fixed 2026-09-12):
@@ -438,7 +470,7 @@ founder and the referee should both see *why*, not only *what*.
                                     # tool_suggest hooks plugins memories apps browser_use
                                     # computer_use image_generation
     -C <job_dir>
-    [-m <slug>]                     # KEEL_CODEX_MODEL; unpinned prints model=default
+    [-m <slug>]                     # the job's model["codex"], when the cloud named one
   ```
 
   **The closed shape is feature flags, and it was proved before it was trusted**: a run so

@@ -91,6 +91,7 @@ def _request(
     content="the founder's framing text",
     response_contract=None,
     job_id="job-1",
+    model=None,
 ):
     return InferenceRequest(
         job_id=job_id,
@@ -103,6 +104,7 @@ def _request(
             "input": {"content": content},
             "response_contract": response_contract or {},
         },
+        model=model,
     )
 
 
@@ -1032,15 +1034,19 @@ class RecoveryNamesTheMissingKeyTest(_ExecutorTestBase):
 
 
 class TheClaudeModelPinTest(unittest.TestCase):
-    """2026-09-12: `--model` is passed when a pin is given and absent when it is not."""
+    """spec 009: `--model` is passed when the job names one and absent when it does not -- per
+    call, never from the constructor (there is no session-wide model, design §6)."""
 
-    def test_the_argv_carries_the_pin_only_when_there_is_one(self):
+    def test_the_argv_carries_the_jobs_model_only_when_there_is_one(self):
         from keel_runtime.executor import ClaudeCodeExecutor
-        unpinned = ClaudeCodeExecutor(home="/tmp/x")
-        unpinned._resolved_binary = "claude"
-        argv = unpinned._build_argv({"type": "object"})
+        executor = ClaudeCodeExecutor(home="/tmp/x")
+        executor._resolved_binary = "claude"
+        argv = executor._build_argv({"type": "object"})
         self.assertNotIn("--model", argv)
-        pinned = ClaudeCodeExecutor(home="/tmp/x", model="sonnet")
-        pinned._resolved_binary = "claude"
-        argv = pinned._build_argv({"type": "object"})
+        argv = executor._build_argv({"type": "object"}, "sonnet")
         self.assertEqual(argv[argv.index("--model") + 1], "sonnet")
+
+    def test_the_constructor_takes_no_model(self):
+        from keel_runtime.executor import ClaudeCodeExecutor
+        with self.assertRaises(TypeError):
+            ClaudeCodeExecutor(home="/tmp/x", model="sonnet")

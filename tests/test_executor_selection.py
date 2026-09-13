@@ -26,7 +26,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -294,7 +294,6 @@ class TheStartupLineTest(_WhichCase):
     def _config(self, **kwargs):
         kwargs.setdefault("executor", "claude")
         kwargs.setdefault("executor_source", "default")
-        kwargs.setdefault("copilot_model", None)
         return SimpleNamespace(**kwargs)
 
     def _no_version_probe(self):
@@ -336,50 +335,30 @@ class TheStartupLineTest(_WhichCase):
         self.assertTrue(lines[1].startswith("KEEL_EXECUTOR_UNAVAILABLE=copilot"))
         self.assertIn("EXECUTOR_UNAVAILABLE", lines[1])
 
-    def test_an_unpinned_copilot_run_says_model_auto_out_loud(self):
-        """C-5: a Copilot subject that does not pin `--model` measures the router, not a model.
-        An unpinned run must be visible in the log, never inferred from a missing word.
-        """
-        self._on_path("copilot")
-        self._no_version_probe()
-        unpinned = cli_module.executor_startup_lines(
-            self._config(executor="copilot", executor_source="path")
-        )[0]
-        pinned = cli_module.executor_startup_lines(
-            self._config(executor="copilot", executor_source="path", copilot_model="gpt-5.4")
-        )[0]
-        self.assertIn("model=auto", unpinned)
-        self.assertIn("model=gpt-5.4", pinned)
+    def test_the_line_carries_no_model_word_for_any_host(self):
+        """spec 009-model-routing (design §6): there is no session-wide model any more -- the
+        model is per job, named by the cloud, and recorded per job in `execution.json` -- so the
+        startup line says which executor and why, and nothing about a model, on every host."""
+        for host in ("claude", "copilot", "codex"):
+            with self.subTest(host=host):
+                self._on_path(host)
+                self._no_version_probe()
+                line = cli_module.executor_startup_lines(
+                    self._config(executor=host, executor_source="host")
+                )[0]
+                self.assertIn(f"KEEL_EXECUTOR={host}", line)
+                self.assertNotIn("model=", line)
 
-    def test_an_unpinned_codex_run_says_model_default_out_loud(self):
-        """spec 008: unpinned, `codex exec` answers with the account's default model (measured
-        `gpt-6-astra`), and the line says `model=default` rather than leaving it to be inferred."""
-        self._on_path("codex")
-        self._no_version_probe()
+    def test_a_probe_handed_in_is_used_instead_of_probing_again(self):
+        """spec 009: `_run_connect` probes the CLI once and shares the result between the startup
+        line and the executor's `host_version`."""
         line = cli_module.executor_startup_lines(
-            self._config(executor="codex", executor_source="host", codex_model=None)
+            self._config(executor="codex", executor_source="host"),
+            probe=("codex", "/opt/homebrew/bin/codex", "codex-cli 0.154.0"),
         )[0]
-        self.assertIn("KEEL_EXECUTOR=codex", line)
-        self.assertIn("model=default", line)
-        pinned = cli_module.executor_startup_lines(
-            self._config(executor="codex", executor_source="flag", codex_model="gpt-6-astra")
-        )[0]
-        self.assertIn("model=gpt-6-astra", pinned)
-
-    def test_the_claude_line_says_model_default_unless_pinned(self):
-        """2026-09-12: the Claude executor gained a pin (`--claude-model` / KEEL_CLAUDE_MODEL /
-        config.json's claude_model). Unpinned, the account's configured default answers and the
-        line says so; pinned, the line carries the alias or name."""
-        self._on_path("claude")
-        self._no_version_probe()
-        line = cli_module.executor_startup_lines(
-            self._config(executor="claude", executor_source="path")
-        )[0]
-        self.assertIn("model=default", line)
-        pinned = cli_module.executor_startup_lines(
-            self._config(executor="claude", executor_source="flag", claude_model="sonnet")
-        )[0]
-        self.assertIn("model=sonnet", pinned)
+        self.assertEqual(
+            line, "KEEL_EXECUTOR=codex source=host binary=/opt/homebrew/bin/codex version=codex-cli 0.154.0"
+        )
 
     def test_the_version_is_printed_when_it_is_cheap_to_have(self):
         self._on_path("copilot")
@@ -458,11 +437,20 @@ class ConnectAcceptsHostTest(unittest.TestCase):
     must accept it, and must not have grown a new outcome key to carry it (decision 15).
     """
 
-    def test_connect_accepts_host_and_copilot_model(self):
+    def test_connect_accepts_host(self):
         parser = cli_module.build_parser()
-        args = parser.parse_args(["connect", "--host", "copilot", "--copilot-model", "gpt-5.4"])
+        args = parser.parse_args(["connect", "--host", "copilot"])
         self.assertEqual(args.host, "copilot")
-        self.assertEqual(args.copilot_model, "gpt-5.4")
+
+    def test_connect_has_no_model_flag_for_any_host(self):
+        """spec 009 / design §6: the 0.4.0 `--<host>-model` flags are gone. The model comes with
+        the job, from the cloud's routing table, and from nowhere else."""
+        parser = cli_module.build_parser()
+        for flag in ("--claude-model", "--copilot-model", "--codex-model"):
+            with self.subTest(flag=flag):
+                with self.assertRaises(SystemExit):
+                    with redirect_stderr(io.StringIO()):
+                        parser.parse_args(["connect", flag, "x"])
 
     def test_host_defaults_to_auto(self):
         self.assertEqual(cli_module.build_parser().parse_args(["connect"]).host, "auto")
@@ -491,35 +479,21 @@ class ConnectAcceptsHostTest(unittest.TestCase):
                         parser.parse_args([command, "--host", "copilot"])
 
 
-class TheCopilotModelResolutionTest(unittest.TestCase):
-    def test_flag_beats_env_beats_file_beats_unpinned(self):
-        self.assertEqual(
-            config_module.resolve_copilot_model(
-                SimpleNamespace(copilot_model="from-flag"),
-                {"copilot_model": "from-file"},
-                environ={"KEEL_COPILOT_MODEL": "from-env"},
-            ),
-            "from-flag",
-        )
-        self.assertEqual(
-            config_module.resolve_copilot_model(
-                SimpleNamespace(copilot_model=None),
-                {"copilot_model": "from-file"},
-                environ={"KEEL_COPILOT_MODEL": "from-env"},
-            ),
-            "from-env",
-        )
-        self.assertEqual(
-            config_module.resolve_copilot_model(
-                SimpleNamespace(copilot_model=None), {"copilot_model": "from-file"}, environ={}
-            ),
-            "from-file",
-        )
-        self.assertIsNone(
-            config_module.resolve_copilot_model(
-                SimpleNamespace(copilot_model=None), {}, environ={}
-            )
-        )
+class NoModelKnobTest(unittest.TestCase):
+    """spec 009 / design §6: `config` has no model resolution and `RuntimeConfig` no model
+    field -- `KEEL_<HOST>_MODEL` and `<host>_model` in `config.json` are ignored, not read."""
+
+    def test_the_resolvers_and_constants_are_gone(self):
+        for name in ("resolve_copilot_model", "resolve_codex_model", "resolve_claude_model",
+                     "ENV_COPILOT_MODEL", "ENV_CODEX_MODEL", "ENV_CLAUDE_MODEL"):
+            with self.subTest(name=name):
+                self.assertFalse(hasattr(config_module, name))
+
+    def test_runtime_config_carries_no_model(self):
+        fields = config_module.RuntimeConfig.__dataclass_fields__
+        for name in ("copilot_model", "codex_model", "claude_model"):
+            with self.subTest(name=name):
+                self.assertNotIn(name, fields)
 
 
 if __name__ == "__main__":  # pragma: no cover

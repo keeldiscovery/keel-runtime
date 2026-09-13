@@ -123,6 +123,7 @@ def _request(
     response_contract=None,
     job_id="job-1",
     context=None,
+    model=None,
 ):
     return InferenceRequest(
         job_id=job_id,
@@ -135,6 +136,7 @@ def _request(
             "input": {"content": content},
             "response_contract": response_contract or _CONTRACT_COMPLETED,
         },
+        model=model,
     )
 
 
@@ -638,9 +640,10 @@ class TheInvocationShapeTest(_FakeCopilotCase):
         self.executor.execute(_request())
         self.assertNotIn("--model", self._record()["argv"])
 
-        CopilotExecutor(home=self.home, model="gpt-5.4").execute(_request(job_id="job-2"))
+        self.executor.execute(_request(job_id="job-2", model="gpt-5.4"))
         argv = self._record(1)["argv"]
         self.assertEqual(argv[argv.index("--model") + 1], "gpt-5.4")
+        self.assertEqual(self.executor.last_model_requested, "gpt-5.4")
 
     def test_max_ai_credits_is_never_below_the_cli_minimum(self):
         self.assertEqual(CopilotExecutor(max_ai_credits=1).max_ai_credits, 30)
@@ -803,11 +806,14 @@ class GetExecutorTest(unittest.TestCase):
         made = executor_module.get_executor("copilot", timeout_seconds=450.0)
         self.assertIsInstance(made, CopilotExecutor)
         self.assertEqual(made.timeout_seconds, 450.0)
-        self.assertIsNone(made.model)
+        self.assertFalse(hasattr(made, "model"), "spec 009: no session-wide model on an executor")
+        self.assertEqual(made.host_key, "copilot")
 
-    def test_the_pinned_model_reaches_the_copilot_executor(self):
-        made = executor_module.get_executor("copilot", copilot_model="gpt-5.4")
-        self.assertEqual(made.model, "gpt-5.4")
+    def test_get_executor_no_longer_takes_a_model(self):
+        """spec 009 / design §6: the 0.4.0 `copilot_model`/`codex_model`/`claude_model` knobs are
+        gone -- the model comes with each job and from nowhere else."""
+        with self.assertRaises(TypeError):
+            executor_module.get_executor("copilot", copilot_model="gpt-5.4")
 
     def test_claude_and_its_permanent_alias_build_the_same_class(self):
         """C-12: `claude-code` is a permanent accepted alias, because
