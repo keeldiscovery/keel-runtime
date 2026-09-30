@@ -92,6 +92,7 @@ def _request(
     response_contract=None,
     job_id="job-1",
     model=None,
+    effort=None,
 ):
     return InferenceRequest(
         job_id=job_id,
@@ -105,6 +106,7 @@ def _request(
             "response_contract": response_contract or {},
         },
         model=model,
+        effort=effort,
     )
 
 
@@ -407,6 +409,8 @@ class ClaudeCodeExecutorTest(_ExecutorTestBase):
             "--system-prompt",
             SYSTEM_PROMPT,
         ]
+        # spec 010: this job names neither a model nor an effort, so the argv is byte-identical to
+        # the one 0.5.1 built. Both flags are appended, model then effort, and only when named.
         self.assertEqual(record["argv"], expected_argv)
 
     def test_prompt_is_sent_on_stdin_never_in_argv(self):

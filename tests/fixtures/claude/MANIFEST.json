@@ -1,6 +1,6 @@
 {
  "measured": "2026-09-13",
- "cli": "Claude Code 2.1.270 (`claude --version`)",
+ "cli": "Claude Code 2.1.270 (`claude --version`); the 2026-09-30 recording is 2.1.284",
  "machine": "the founder's Mac (Apple Silicon, macOS 25.5.0), signed in with the founder's Claude plan",
  "how": "`unknown-model.jsonl` is the stdout of one real `claude -p --tools \"\" --strict-mcp-config --setting-sources \"\" --no-session-persistence --max-turns 1 --max-budget-usd 0.2 --output-format stream-json --verbose --model not-a-model` with the prompt on stdin. The `system`/`init` event is scrubbed: `cwd` replaced, and the account's own inventory lists (slash_commands, skills, plugins, agents, memory paths, socket path, capabilities) emptied; every other field and every other event is verbatim. `.stderr` is verbatim.",
  "recordings": {
@@ -12,6 +12,12 @@
   "unknown-model.stderr": {
    "verbatim": true,
    "note": "one line: `[claude-code:unrecognized_model] {\"model\":\"not-a-model\",\"query_source\":\"sdk\"}`"
+  },
+  "effort-help.txt": {
+   "verbatim": true,
+   "measured": "2026-09-30",
+   "cli": "Claude Code 2.1.284 (`claude --version`)",
+   "note": "spec 010 FR-004, and the whole of what this runtime knows about the flag. The `--effort` entry of `claude --help`, verbatim, on the founder's Mac: `--effort <level>  Effort level for the current session (low, medium, high, xhigh, max)`. Five words, the same five keel-cloud's ModelRouting.EFFORT_LADDER validates against and the same five the API's output_config.effort takes. Recorded because a flag nobody recorded is not a flag: the runtime passes the job's effort here and validates nothing itself (spec 010 FR-008), so this file is the evidence that the flag and its ladder exist."
   }
  }
 }

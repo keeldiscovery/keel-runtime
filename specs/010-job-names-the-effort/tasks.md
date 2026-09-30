@@ -16,31 +16,31 @@ behaviour claim is measured and recorded as a fixture.
 
 ## Phase 2 — what was measured
 
-- [ ] T004 `tests/fixtures/claude/effort-help.txt`: the `--effort` line of `claude --help` on
+- [x] T004 `tests/fixtures/claude/effort-help.txt`: the `--effort` line of `claude --help` on
   2.1.284, recorded verbatim, with its `MANIFEST.json` row — a flag nobody recorded is not a flag.
 
 ## Phase 3 — the runtime
 
-- [ ] T005 `keel_runtime/executor.py`: `InferenceRequest.effort`, beside `model`, with the comment
+- [x] T005 `keel_runtime/executor.py`: `InferenceRequest.effort`, beside `model`, with the comment
   that says where it comes from and that there is no other source.
-- [ ] T006 `keel_runtime/poller.py`: `_effort_for`, the twin of `_model_for`; wired in
+- [x] T006 `keel_runtime/poller.py`: `_effort_for`, the twin of `_model_for`; wired in
   `_handle_job`.
-- [ ] T007 `keel_runtime/executor.py`: `ClaudeCodeExecutor._build_argv(..., effort)` appends
+- [x] T007 `keel_runtime/executor.py`: `ClaudeCodeExecutor._build_argv(..., effort)` appends
   `--effort <level>` last, and `_invoke(..., effort)` threads it.
-- [ ] T008 `keel_runtime/executor.py`: all three `_invoke` call sites in `execute` pass the effort —
+- [x] T008 `keel_runtime/executor.py`: all three `_invoke` call sites in `execute` pass the effort —
   the first pass, the **unpinned retry** (model `None`, effort kept) and the recovery pass.
-- [ ] T009 `keel_runtime/config.py`: extend spec 009's "there is no model knob here" comment to say
+- [x] T009 `keel_runtime/config.py`: extend spec 009's "there is no model knob here" comment to say
   the same of the effort, and why.
 
 ## Phase 4 — tests, docs, version
 
-- [ ] T010 `tests/test_effort_routing.py`: the argv with and without; the four ways of meaning "no
+- [x] T010 `tests/test_effort_routing.py`: the argv with and without; the four ways of meaning "no
   flag"; the byte-identical pre-0.6.0 argv; the unpinned retry keeping the effort; Codex and Copilot
   unchanged; an unknown word passed through.
-- [ ] T011 `tests/test_executor.py`: the full-argv equality test updated, not relaxed.
-- [ ] T012 `README.md`: the key beside `model`, the flag beside `--model`, and the certified pair.
-- [ ] T013 Version **0.6.0** in `keel_runtime/__init__.py` and `pyproject.toml`.
-- [ ] T014 Gate: `python -m pytest -q` green. Commit.
+- [x] T011 `tests/test_executor.py`: the full-argv equality test updated, not relaxed.
+- [x] T012 `README.md`: the key beside `model`, the flag beside `--model`, and the certified pair.
+- [x] T013 Version **0.6.0** in `keel_runtime/__init__.py` and `pyproject.toml`.
+- [x] T014 Gate: `python -m pytest -q` green. Commit.
 
 ## What is deliberately not in this file
 

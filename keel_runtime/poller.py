@@ -154,6 +154,35 @@ def _model_for(executor: Executor, request_payload: dict):
     return None
 
 
+def _effort_for(executor: Executor, request_payload: dict):
+    """`request_payload["effort"][<host_key>]` when it is a non-empty string; otherwise `None`.
+
+    spec 010, the twin of `_model_for` and deliberately its mirror image, because the effort is the
+    second half of the same pin (keel-cloud `model-routing-design.md` §4's `efforts` block, §5's
+    seventh key). The same four things all mean "no flag": a payload without the key (a cloud older
+    than v6), a value that is not an object, a map with no entry for this host (Codex and Copilot
+    have no `efforts` row at all, because neither CLI has an effort flag to pass one to), and a
+    value that is not a non-empty string.
+
+    A reading always lands here with `None`, and that is the mechanism rather than an accident:
+    `reading` routes to the `light` tier, the `light` row carries no effort, and `effort` errors on
+    Haiku 4.5.
+
+    The word is NOT validated. keel-cloud's table refuses one outside `low|medium|high|xhigh|max` at
+    startup and the CLI refuses one at the flag (spec 010 FR-008).
+    """
+    host = getattr(executor, "host_key", None)
+    if not host:
+        return None
+    efforts = request_payload.get("effort") if isinstance(request_payload, dict) else None
+    if not isinstance(efforts, dict):
+        return None
+    effort = efforts.get(host)
+    if isinstance(effort, str) and effort.strip():
+        return effort.strip()
+    return None
+
+
 def _execution_report(executor: Executor):
     """The `execution` object for `/complete` and `/fail`; `None` for an executor with no host."""
     host = getattr(executor, "host_key", None)
@@ -203,6 +232,7 @@ def _handle_job(client: CloudClient, state, executor: Executor, job: dict, confi
         turn_number=job["turn_number"],
         request_payload=job["request_payload"],
         model=_model_for(executor, job["request_payload"]),
+        effort=_effort_for(executor, job["request_payload"]),
     )
 
     try:

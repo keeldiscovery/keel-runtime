@@ -100,6 +100,15 @@ ENV_HOST_MARKERS = (
 # job (`request_payload["model"][<host>]`, keel-cloud `canon/designs/model-routing-design.md`
 # §6) and from nowhere else; the 0.4.0 `--<host>-model` flags, `KEEL_<HOST>_MODEL` variables
 # and `<host>_model` config keys were removed in 0.5.0.
+#
+# spec 010-job-names-the-effort: and there is no EFFORT knob here either, for the same reason and
+# one more. The same reason: the effort is the second half of the same pin, it comes with the job
+# (`request_payload["effort"][<host>]`, design §5) and a second source of truth is exactly what
+# spec 009 spent 0.5.0 removing. The one more: an effort knob here would be process-wide, and a
+# process-wide effort is the thing keel-e2e-eval's judge already has to defend itself against --
+# `judge_env()` strips `CLAUDE_CODE_EFFORT_LEVEL` by name so that a subject set at one level does
+# not silently score its own run at that level. A per-job value belongs on a per-job argv, which is
+# where `ClaudeCodeExecutor._build_argv` puts it.
 
 # Env var names (spec FR-026): "flags > env (KEEL_BASE_URL, KEEL_EXECUTOR, KEEL_HOME,
 # KEEL_CREDENTIAL_BACKEND) > $KEEL_HOME/config.json".

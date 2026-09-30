@@ -80,6 +80,24 @@ class InferenceRequest:
     # rule: present, it goes to the CLI as that host's model flag; absent, the CLI's own default.
     # There is no other source of a model anywhere in this runtime (design §6, decision 6).
     model: "str | None" = None
+    # spec 010-job-names-the-effort (design §4's `efforts` block, §5's seventh key, §6's rule): the
+    # SECOND HALF of the same pin, read the same way -- `request_payload["effort"][<host_key>]`,
+    # `None` when the job carries no key or no entry for this host -- and obeying the same one rule:
+    # present, it goes to the CLI as that host's effort flag; absent, the CLI's own default.
+    #
+    # Why it exists at all. A certificate is a model AND an effort level. keel-cloud's run of record
+    # 20260930T024851Z-instructions certified `claude-sonnet-5-5` *at effort medium*, and the Claude
+    # Code CLI's own default is `xhigh` -- 3.7x the thinking and 2.4x the wall clock, for five marks
+    # `medium` already holds. A founder's own CLI handed the model without the effort would run a
+    # combination nobody certified.
+    #
+    # There is no other source of an effort anywhere in this runtime, and in particular this is NOT
+    # `CLAUDE_CODE_EFFORT_LEVEL`. That variable does reach the CLI -- `_build_env`'s `CLAUDE_` prefix
+    # allow-lists it through from whatever the operator exported -- and that is exactly why it is the
+    # wrong mechanism for a per-job value: it is process-wide, it is inherited by anything else the
+    # process spawns, and keel-e2e-eval had to write a `judge_env()` that strips it by name to stop a
+    # subject's setting from silently scoring its own run. A per-job value belongs on a per-job argv.
+    effort: "str | None" = None
 
 
 def _first_string_for_keys(value, keys) -> "str | None":
@@ -926,9 +944,24 @@ class ClaudeCodeExecutor(Executor):
     host_key = "claude"
     host_version: "str | None" = None
 
-    def _build_argv(self, envelope_schema: dict, model: "str | None" = None) -> list:
+    def _build_argv(self, envelope_schema: dict, model: "str | None" = None,
+                    effort: "str | None" = None) -> list:
         # spec 009: `--model` takes an alias (`sonnet`, `haiku`, `opus`) or a full name, and it
         # is passed only when the job named one; otherwise the account's configured default.
+        #
+        # spec 010: `--effort` takes one of `low, medium, high, xhigh, max` (measured on 2.1.284,
+        # `tests/fixtures/claude/effort-help.txt`) and is passed only when the job named one;
+        # otherwise the CLI's own default, which is `xhigh`. THE VALUE IS NOT VALIDATED HERE, on
+        # purpose: keel-cloud's routing table refuses a word outside that ladder at startup, with the
+        # whole table in hand, and the CLI refuses one at the flag. A third opinion in the middle can
+        # only be wrong in a new way -- the day the ladder grows a sixth word, this would be the one
+        # thing that disagreed.
+        #
+        # Two independent tails rather than one branch, because the two ARE independent: a reading
+        # names a model and no effort (it routes to the `light` tier, which carries none, because
+        # `effort` errors on Haiku 4.5), and every Codex and Copilot job names a model and no effort.
+        # Appending both last, effort after model, keeps an argv without an effort byte-identical to
+        # the one this method built before 0.6.0.
         return [
             self._resolved_binary,
             "-p",
@@ -949,15 +982,16 @@ class ClaudeCodeExecutor(Executor):
             json.dumps(envelope_schema),
             "--system-prompt",
             SYSTEM_PROMPT,
-        ] + (["--model", model] if model else [])
+        ] + (["--model", model] if model else []) + (["--effort", effort] if effort else [])
 
-    def _invoke(self, prompt: str, envelope_schema: dict, job_dir: Path, model: "str | None" = None):
+    def _invoke(self, prompt: str, envelope_schema: dict, job_dir: Path, model: "str | None" = None,
+                effort: "str | None" = None):
         """Runs the CLI once, parses its `stream-json` stdout, and returns
         `(events, result_event, completed)`. `result_event` is `None` when the stream
         never carried one (an older CLI without `--json-schema`, or unparseable
         stdout) -- callers fall back on `completed.returncode`/`stderr`, as before.
         """
-        argv = self._build_argv(envelope_schema, model)
+        argv = self._build_argv(envelope_schema, model, effort)
         completed = _run_with_prompt_on_stdin(
             argv,
             prompt,
@@ -998,16 +1032,28 @@ class ClaudeCodeExecutor(Executor):
         job_dir.mkdir(parents=True, exist_ok=True)
 
         model = _begin_model_report(self, request)
-        events, result_event, completed = self._invoke(prompt, envelope_schema, job_dir, model)
+        # spec 010: the job's effort, read by the poller the same way the model was, and passed on
+        # EVERY invocation below -- see the retry's own comment for why.
+        effort = request.effort if isinstance(request.effort, str) and request.effort.strip() else None
+        events, result_event, completed = self._invoke(
+            prompt, envelope_schema, job_dir, model, effort
+        )
         all_events = list(events)
         if model and _claude_refused_model(result_event, completed):
             # spec 009 FR-006: the CLI refused the named model (measured: `is_error` with
             # `terminal_reason: api_error` and the "issue with the selected model" text,
             # `tests/fixtures/claude/unknown-model.jsonl`). One retry, unpinned, same job; the
             # refused pass's events stay in the log.
+            #
+            # spec 010: the EFFORT SURVIVES THIS RETRY. What the CLI refused was a model, by name;
+            # dropping the effort here would answer one refusal with two changes, and the second one
+            # would be silent -- the retry would quietly run at the CLI's own `xhigh` and the founder
+            # would be billed for an answer nobody certified.
             self.last_retried_unpinned = True
             model = None
-            events, result_event, completed = self._invoke(prompt, envelope_schema, job_dir, None)
+            events, result_event, completed = self._invoke(
+                prompt, envelope_schema, job_dir, None, effort
+            )
             all_events.extend(events)
         # Read off the *answering* pass only: a refused pass's init event echoes the flag it was
         # given (`model: "not-a-model"`, measured), which is not a model that ran.
@@ -1024,7 +1070,7 @@ class ClaudeCodeExecutor(Executor):
             if schema_error_so_far:
                 recovery_prompt = prompt + "\n\n" + _recovery_section(schema_error_so_far)
                 events2, result_event2, completed2 = self._invoke(
-                    recovery_prompt, envelope_schema, job_dir, model
+                    recovery_prompt, envelope_schema, job_dir, model, effort
                 )
                 all_events.extend(events2)
                 completed = completed2

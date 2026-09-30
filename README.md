@@ -252,29 +252,54 @@ KEEL_EXECUTOR_UNAVAILABLE=copilot           # not on PATH; jobs report EXECUTOR_
 `source` is one of `flag`, `env`, `config`, `host`, `path`, `ambiguous-path`, `default` — the
 founder and the referee should both see *why*, not only *what*.
 
-## Which model runs
+## Which model runs, and how hard it thinks
 
-**The job says** (spec `009-model-routing`; design of record keel-cloud
-`canon/designs/model-routing-design.md`). Every inference job the cloud hands this runtime may
-carry a sixth key, a per-host map:
+**The job says** (specs `009-model-routing` and `010-job-names-the-effort`; design of record
+keel-cloud `canon/designs/model-routing-design.md`). Every inference job the cloud hands this
+runtime may carry a sixth and a seventh key, each a per-host map:
 
 ```json
-"model": { "claude": "sonnet", "copilot": "gpt-5.6-luna", "codex": "gpt-5.6-terra" }
+"model":  { "claude": "claude-sonnet-5-5", "copilot": "gpt-6-astra", "codex": "gpt-6-astra" },
+"effort": { "claude": "medium" }
 ```
 
 The runtime reads the entry for its own host and passes it to the CLI as that host's model flag
-(`claude --model`, `copilot --model`, `codex -m`). No entry for this host, or no key at all: no
-flag, and the CLI's own default answers, as before. **That is the whole rule.** There is no
+(`claude --model`, `copilot --model`, `codex -m`) and, on Claude Code, that host's effort flag
+(`claude --effort`). No entry for this host, or no key at all: no flag, and the CLI's own default
+answers, as before. **That is the whole rule, and it is one rule for both halves.** There is no
 `--<host>-model` flag, no `KEEL_<HOST>_MODEL` variable and no `<host>_model` config key (the
-0.4.0 knobs were removed in 0.5.0): a model name lives in keel-cloud's routing table and nowhere
-on this machine, so a deprecated model is one row there, not a release here.
+0.4.0 knobs were removed in 0.5.0), and there is no effort knob of any kind either: both live in
+keel-cloud's routing table and nowhere on this machine, so a deprecated model or a re-certified
+effort is one row there, not a release here.
+
+**Why the effort travels at all.** A certificate is a model *and* an effort level. keel-cloud's run
+of record `20260930T024851Z-instructions` certified `claude-sonnet-5-5` **at effort `medium`** — all
+five marks over a 393-case corpus — and the Claude Code CLI's own default is `xhigh`, measured in
+that run at 3.7× the thinking and 2.4× the wall clock for marks `medium` already holds. A founder's
+own CLI handed the model without the effort would run a combination nobody certified.
+
+`--effort` takes `low`, `medium`, `high`, `xhigh` or `max` (measured on Claude Code 2.1.284,
+`tests/fixtures/claude/effort-help.txt`), and **the runtime does not validate the word**: keel-cloud's
+table refuses one outside that ladder at startup and the CLI refuses one at the flag.
+
+**Codex and Copilot carry no effort**, because neither CLI's invocation here has a flag to carry one
+— nothing is invented for them, and keel-cloud's table has no row for them. **A reading carries
+none either**: it routes to the light tier, which names Haiku and no effort, because `effort` errors
+on Haiku 4.5.
+
+**It is a flag, not `CLAUDE_CODE_EFFORT_LEVEL`.** That variable does reach the CLI (the `CLAUDE_`
+prefix is allow-listed through to the subprocess), and that is exactly why it is the wrong mechanism
+for a per-job value: it is process-wide and is inherited by anything else the process spawns. A
+per-job value belongs on a per-job argv, where the job log can show it.
 
 **When the CLI refuses the named model** — each host says so in its own measured words
 (`tests/fixtures/<host>/MANIFEST.json`, 2026-09-13): Claude Code's *"issue with the selected
 model"*, Copilot's *`Model "…" from --model flag is not available.`*, Codex's *"model is not
 supported when using Codex with a ChatGPT account"* on a plan sign-in and the API's 404 *"does not
 exist or you do not have access to it"* on an API-key one — the job is run **once more, unpinned**, and
-completes on the default. Any other failure is what it was: no retry.
+completes on the default. Any other failure is what it was: no retry. **The effort survives that
+retry**: what was refused was a model, by name, and dropping the effort too would answer one refusal
+with two changes, the second one silent.
 
 **The completion says what ran.** `/complete` and `/fail` carry an optional `execution` object,
 also written to `$KEEL_HOME/jobs/<id>/execution.json`:
@@ -310,6 +335,7 @@ carry no `execution` and their bodies are unchanged.
     --json-schema <contract>        # the job's own response contract, enforced by the CLI
     --system-prompt <fixed text>    # runtime-owned, identical for every job
     [--model <alias|name>]          # the job's model["claude"], when the cloud named one
+    [--effort <level>]              # the job's effort["claude"], when the cloud named one
   ```
 
   The whole invocation is given `KEEL_JOB_TIMEOUT_SECONDS` (default **300s**) of wall
