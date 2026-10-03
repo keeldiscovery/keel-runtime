@@ -71,6 +71,12 @@
   "unsupported-model-on-api-key.stderr": {
    "verbatim": true,
    "note": "only the CLI's `Reading additional input from stdin...` notice"
+  },
+  "exec-config-help.txt": {
+   "verbatim": true,
+   "measured": "2026-10-03",
+   "cli": "codex-cli 0.154.0 (`codex --version`)",
+   "note": "spec 011 FR-004, and the whole of what this runtime knows about the effort on this host. The `-c, --config <key=value>` entry of `codex exec --help`, verbatim: there is NO `--effort` flag on this CLI; the effort is a config override, `-c model_reasoning_effort=<level>`, which `--help` does not name. The ladder is not in the help text either: it is the catalogue's own `supported_reasoning_levels` in `~/.codex/models_cache.json` (read, not called, 2026-10-03), where EVERY visible model lists `low`, `medium`, `high`, `xhigh` (gpt-5.5 lists only those four; gpt-5.6-luna adds `max`; gpt-5.6-terra, gpt-5.6-sol and gpt-6-astra add `max` and `ultra`), and `default_reasoning_level` is `medium` for gpt-5.6-terra and gpt-5.6-luna and `low` for gpt-6-astra. `CODEX_EFFORT_LADDER` is that four-word intersection, and a word off it is refused per job by name (spec 011 FR-006) because nothing here measured what the CLI does with one -- `-c` parses its value as TOML and says nothing about the key. Measured accepted beside `-m` on the ChatGPT login: one closed probe, `codex exec \"Reply with the single word ok.\" --json --ephemeral --skip-git-repo-check -s read-only --ignore-user-config -m gpt-5.6-terra -c model_reasoning_effort=medium`, answered `ok` in 3.4 s with no `error` event (keel-cloud canon/drafts/codex-terra-luna-screen-2026-10-03.md section 6.2). Nothing in the `--json` stream names the effort that ran, so the argv is the record."
   }
  }
 }

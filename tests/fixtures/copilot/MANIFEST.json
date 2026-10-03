@@ -60,7 +60,13 @@
    "exit_code": 1,
    "stdout": "",
    "measured": "2026-09-13, GitHub Copilot CLI 1.0.83, the executor's closed argv with `--model not-a-model`, the founder's own COPILOT_HOME",
-   "note": "spec 009 FR-006, the model-refusal marker for this host: no JSONL at all (no session starts), one stderr line -- `Error: Model \"not-a-model\" from --model flag is not available.` -- checked before `_assert_ran`, which would otherwise report it as LLM_UNAVAILABLE. Distinct from the CAPIError 400 \"The requested model is not supported\" an invalid token once produced (design \u00a75.4), which names no flag and is not matched."
+   "note": "spec 009 FR-006, the model-refusal marker for this host: no JSONL at all (no session starts), one stderr line -- `Error: Model \"not-a-model\" from --model flag is not available.` -- checked before `_assert_ran`, which would otherwise report it as LLM_UNAVAILABLE. Distinct from the CAPIError 400 \"The requested model is not supported\" an invalid token once produced (design §5.4), which names no flag and is not matched."
+  },
+  "effort-help.txt": {
+   "verbatim": true,
+   "measured": "2026-10-03",
+   "cli": "GitHub Copilot CLI 1.0.83 (`copilot --version`)",
+   "note": "spec 011 FR-005, and the whole of what this runtime knows about the effort on this host. The `--effort, --reasoning-effort <level>` entry of `copilot --help`, verbatim, with its seven choices: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. `COPILOT_EFFORT_LADDER` is that list. Recorded from `--help` only -- NO call was made: whether the flag is honoured for a given model on the founder's plan is unmeasured, and the only measurement owed before the v8 Copilot rows are trusted is keel-cloud's own (the two `--model` probes and one screen). A word off the ladder is refused per job by name before the CLI is run (spec 011 FR-006)."
   }
  },
  "c6_finding": "All three unauthenticated runs exit 1 with **completely empty stdout** -- not one line of JSONL and no session.error anywhere. The design expected the auth failure to arrive as a session.error inside the JSONL; CLI 1.0.83 fails before the session starts, so the observed marker is on stderr. COPILOT_HOME was isolated for every one of them, because a stored credential beats a bogus token."
