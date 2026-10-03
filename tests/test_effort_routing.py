@@ -77,8 +77,8 @@ class EffortForTest(unittest.TestCase):
         self.assertIsNone(_effort_for(self.claude, _payload()))
 
     def test_no_entry_for_this_host_is_no_flag(self):
-        # The shipped v6 table: `efforts` names `claude` alone, because neither the Codex nor the
-        # Copilot executor has an effort flag to pass one to.
+        # The shipped v6/v7 tables: `efforts` named `claude` alone, because neither the Codex nor
+        # the Copilot executor had an effort flag to pass one to. v8 names all three (spec 011).
         self.assertIsNone(_effort_for(self.codex, _payload(effort_map={"claude": EFFORT})))
 
     def test_a_non_object_effort_is_no_flag(self):
@@ -186,29 +186,253 @@ class TheFlagReachesTheSubprocessTest(claude_tests._ExecutorTestBase):
         self.assertTrue(self.executor.last_retried_unpinned)
 
 
-class TheOtherTwoHostsGetNothingTest(unittest.TestCase):
-    """FR-006. Neither CLI's argv has an effort or reasoning flag, so nothing is invented for one.
-
-    Codex's own `-c model_reasoning_effort=...` has never been wired by this runtime and the only
-    note about it here records that its plan's default is `none`; Copilot has no counterpart at all.
-    keel-cloud's table therefore carries no `efforts` row for either, and design §8's rule against
-    cloud-side translation covers effort words as it covers model names.
+class TheOtherTwoHostsReadTheirOwnEntryTest(unittest.TestCase):
+    """Spec 011 (0.7.0) replaces spec 010's FR-006. Both CLIs now have a measured way to take the
+    effort, so the poller's one rule reaches them unchanged: `request_payload["effort"][<host>]`
+    and nothing else.
     """
 
-    def test_neither_build_argv_takes_or_emits_an_effort(self):
+    def test_both_build_argvs_take_an_effort_now(self):
         import inspect
 
         from keel_runtime.executor import CodexExecutor, CopilotExecutor
 
         for cls in (CodexExecutor, CopilotExecutor):
-            signature = inspect.signature(cls._build_argv)
-            self.assertNotIn("effort", signature.parameters, cls.__name__)
+            self.assertIn("effort", inspect.signature(cls._build_argv).parameters, cls.__name__)
 
-    def test_a_payload_carrying_an_effort_for_claude_changes_nothing_for_them(self):
-        payload = _payload(model_map={"claude": PIN, "codex": "gpt-6-astra"},
+    def test_a_payload_carrying_an_effort_for_claude_alone_changes_nothing_for_them(self):
+        # The v7 table's shape: only `claude` carried an effort, and that is still "no flag" here.
+        payload = _payload(model_map={"claude": PIN, "codex": "gpt-5.6-terra"},
                            effort_map={"claude": EFFORT})
         self.assertIsNone(_effort_for(SimpleNamespace(host_key="codex"), payload))
         self.assertIsNone(_effort_for(SimpleNamespace(host_key="copilot"), payload))
+
+    def test_the_v8_table_names_every_host_and_each_reads_its_own(self):
+        payload = _payload(model_map={"claude": PIN, "codex": "gpt-5.6-terra", "copilot": "gpt-5.6-terra"},
+                           effort_map={"claude": "medium", "codex": "medium", "copilot": "medium"})
+        for host in ("claude", "codex", "copilot"):
+            self.assertEqual(_effort_for(SimpleNamespace(host_key=host), payload), "medium", host)
+
+
+# --------------------------------------------------------------------- spec 011: Codex (0.7.0)
+
+
+class TheCodexFlagIsTheMeasuredOneTest(unittest.TestCase):
+    """A flag nobody recorded is not a flag. On this CLI there is no flag at all: `-c` is a generic
+    config override, the key is `model_reasoning_effort`, and the ladder is the catalogue's."""
+
+    def test_the_recorded_help_is_the_config_override_and_names_no_effort_flag(self):
+        recorded = (_FIXTURES / "codex" / "exec-config-help.txt").read_text(encoding="utf-8")
+        self.assertIn("-c, --config <key=value>", recorded)
+        self.assertIn("parsed\n          as TOML", recorded)
+        self.assertNotIn("--effort", recorded)
+
+    def test_the_manifest_row_names_the_ladder_the_constant_carries(self):
+        import json
+
+        from keel_runtime.executor import CODEX_EFFORT_LADDER
+
+        manifest = json.loads((_FIXTURES / "codex" / "MANIFEST.json").read_text(encoding="utf-8"))
+        note = manifest["recordings"]["exec-config-help.txt"]["note"]
+        self.assertEqual(CODEX_EFFORT_LADDER, ("low", "medium", "high", "xhigh"))
+        for word in CODEX_EFFORT_LADDER:
+            self.assertIn(f"`{word}`", note)
+        self.assertIn("model_reasoning_effort", note)
+
+
+class TheCodexArgvTest(unittest.TestCase):
+    """SC-001/SC-003 for this host: the override is last, after `-m`, and an argv without an effort
+    does not move a byte."""
+
+    def setUp(self):
+        from keel_runtime.executor import CodexExecutor
+
+        self.executor = CodexExecutor(home="/tmp/keel-effort-argv-codex")
+        self.executor._resolved_binary = "codex"
+        self.job_dir = Path("/tmp/keel-effort-argv-codex/jobs/j")
+
+    def test_no_effort_no_override(self):
+        for argv in (self.executor._build_argv(self.job_dir),
+                     self.executor._build_argv(self.job_dir, "gpt-5.6-terra")):
+            self.assertNotIn("-c", argv)
+            self.assertFalse(any("model_reasoning_effort" in a for a in argv))
+            self.assertNotIn("--effort", argv)
+
+    def test_the_override_is_appended_after_the_model(self):
+        argv = self.executor._build_argv(self.job_dir, "gpt-5.6-terra", "medium")
+        self.assertEqual(argv[-4:], ["-m", "gpt-5.6-terra", "-c", "model_reasoning_effort=medium"])
+        self.assertNotIn("--effort", argv)
+
+    def test_an_effort_with_no_model_is_still_passed(self):
+        argv = self.executor._build_argv(self.job_dir, None, "high")
+        self.assertEqual(argv[-2:], ["-c", "model_reasoning_effort=high"])
+        self.assertNotIn("-m", argv)
+
+    def test_an_argv_with_no_effort_is_byte_identical_to_the_pre_0_7_0_one(self):
+        with_model = self.executor._build_argv(self.job_dir, "gpt-5.6-terra")
+        self.assertEqual(with_model, self.executor._build_argv(self.job_dir, "gpt-5.6-terra", None))
+        self.assertEqual(with_model, self.executor._build_argv(self.job_dir, "gpt-5.6-terra", ""))
+        self.assertEqual(with_model[:-2], self.executor._build_argv(self.job_dir))
+
+    def test_every_word_on_the_ladder_is_accepted_and_only_those(self):
+        from keel_runtime.executor import CODEX_EFFORT_LADDER
+
+        for word in CODEX_EFFORT_LADDER:
+            argv = self.executor._build_argv(self.job_dir, "gpt-5.6-terra", word)
+            self.assertEqual(argv[-1], f"model_reasoning_effort={word}")
+        # `max` and `ultra` ARE in the catalogue for terra -- and not for every model, so they are
+        # not on the common ladder and are refused by name rather than passed at a guess. `none`
+        # is Copilot's word, `ultra` nobody's on this runtime, `MEDIUM` is not `medium`.
+        for word in ("max", "ultra", "none", "minimal", "MEDIUM", "medium "):
+            with self.assertRaises(ExecutorUnavailable) as caught:
+                self.executor._build_argv(self.job_dir, "gpt-5.6-terra", word)
+            self.assertIn(repr(word), str(caught.exception))
+            self.assertIn("low, medium, high, xhigh", str(caught.exception))
+            self.assertIn("codex", str(caught.exception))
+
+
+class TheCodexFlagReachesTheSubprocessTest(codex_tests._FakeCodexCase):
+    """SC-002/SC-004 for this host, against the fake CLI: the override in a real argv, on every
+    pass, and a word off the ladder spawns nothing."""
+
+    def test_the_jobs_effort_reaches_the_cli_after_the_model(self):
+        self._queue_stdout(codex_tests._fixture("completed.jsonl"))
+        self.executor.execute(codex_tests._request(model="gpt-5.6-terra", effort="medium"))
+        argv = self._record()["argv"]
+        self.assertEqual(argv[argv.index("-m") + 1], "gpt-5.6-terra")
+        self.assertEqual(argv[argv.index("-c") + 1], "model_reasoning_effort=medium")
+        self.assertGreater(argv.index("-c"), argv.index("-m"))
+
+    def test_a_job_with_no_effort_sends_no_override(self):
+        self._queue_stdout(codex_tests._fixture("completed.jsonl"))
+        self.executor.execute(codex_tests._request(model="gpt-5.6-terra"))
+        self.assertNotIn("-c", self._record()["argv"])
+
+    def test_the_effort_survives_the_unpinned_retry(self):
+        # spec 010 FR-005, kept for this host: the CLI refused a MODEL by name, so `-m` goes and the
+        # override stays -- otherwise the retry would silently run at the catalogue default.
+        self._queue(
+            {"stdout": codex_tests._fixture("unsupported-model-on-plan.jsonl"),
+             "stderr": codex_tests._fixture("unsupported-model-on-plan.stderr"), "returncode": 1},
+            {"stdout": codex_tests._fixture("completed.jsonl"), "returncode": 0},
+        )
+        self.executor.execute(codex_tests._request(model="gpt-5.5-mini", effort="medium"))
+        first, retry = self._records()
+        self.assertIn("model_reasoning_effort=medium", first["argv"])
+        self.assertNotIn("-m", retry["argv"])
+        self.assertEqual(retry["argv"][retry["argv"].index("-c") + 1], "model_reasoning_effort=medium")
+        self.assertTrue(self.executor.last_retried_unpinned)
+
+    def test_the_effort_survives_the_recovery_pass(self):
+        # Prose where JSON was wanted earns one recovery pass (spec 008 FR-011's shape on this
+        # host); the recovery runs at the same model AND the same effort.
+        prose = (
+            '{"type":"thread.started","thread_id":"t"}\n'
+            '{"type":"turn.started"}\n'
+            '{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Here is a summary in words."}}\n'
+            '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n'
+        )
+        self._queue_stdout(prose, codex_tests._fixture("completed.jsonl"))
+        self.executor.execute(codex_tests._request(model="gpt-5.6-terra", effort="medium"))
+        first, recovery = self._records()
+        for record in (first, recovery):
+            self.assertEqual(record["argv"][record["argv"].index("-m") + 1], "gpt-5.6-terra")
+            self.assertEqual(record["argv"][record["argv"].index("-c") + 1], "model_reasoning_effort=medium")
+        self.assertTrue(self.executor.last_envelope["recovery_pass"])
+
+    def test_a_word_off_the_ladder_fails_this_job_by_name_and_spawns_nothing(self):
+        self._queue_stdout(codex_tests._fixture("completed.jsonl"))
+        with self.assertRaises(ExecutorUnavailable) as caught:
+            self.executor.execute(codex_tests._request(model="gpt-5.6-terra", effort="ultra"))
+        self.assertIn("'ultra'", str(caught.exception))
+        self.assertFalse((self.bin_dir / "records.json").exists(), "the CLI must not have been run")
+
+
+# ------------------------------------------------------------------- spec 011: Copilot (0.7.0)
+
+
+class TheCopilotFlagIsTheMeasuredOneTest(unittest.TestCase):
+    def test_the_recorded_help_names_the_flag_and_its_seven_choices(self):
+        from keel_runtime.executor import COPILOT_EFFORT_LADDER
+
+        recorded = (_FIXTURES / "copilot" / "effort-help.txt").read_text(encoding="utf-8")
+        self.assertIn("--effort, --reasoning-effort <level>", recorded)
+        self.assertEqual(COPILOT_EFFORT_LADDER, ("none", "minimal", "low", "medium", "high", "xhigh", "max"))
+        for word in COPILOT_EFFORT_LADDER:
+            self.assertIn(f'"{word}"', recorded)
+
+
+class TheCopilotArgvTest(unittest.TestCase):
+    def setUp(self):
+        from keel_runtime.executor import CopilotExecutor
+
+        self.executor = CopilotExecutor(home="/tmp/keel-effort-argv-copilot")
+        self.executor._resolved_binary = "copilot"
+        self.job_dir = Path("/tmp/keel-effort-argv-copilot/jobs/j")
+
+    def test_no_effort_no_flag(self):
+        self.assertNotIn("--effort", self.executor._build_argv(self.job_dir))
+        self.assertNotIn("--effort", self.executor._build_argv(self.job_dir, "gpt-5.6-terra"))
+
+    def test_the_two_flags_are_appended_model_then_effort(self):
+        argv = self.executor._build_argv(self.job_dir, "gpt-5.6-terra", "medium")
+        self.assertEqual(argv[-4:], ["--model", "gpt-5.6-terra", "--effort", "medium"])
+
+    def test_an_effort_with_no_model_is_still_passed(self):
+        argv = self.executor._build_argv(self.job_dir, None, "low")
+        self.assertEqual(argv[-2:], ["--effort", "low"])
+        self.assertNotIn("--model", argv)
+
+    def test_an_argv_with_no_effort_is_byte_identical_to_the_pre_0_7_0_one(self):
+        with_model = self.executor._build_argv(self.job_dir, "gpt-5.6-terra")
+        self.assertEqual(with_model, self.executor._build_argv(self.job_dir, "gpt-5.6-terra", None))
+        self.assertEqual(with_model, self.executor._build_argv(self.job_dir, "gpt-5.6-terra", ""))
+
+    def test_every_word_on_the_ladder_is_accepted_and_only_those(self):
+        from keel_runtime.executor import COPILOT_EFFORT_LADDER
+
+        for word in COPILOT_EFFORT_LADDER:
+            self.assertEqual(self.executor._build_argv(self.job_dir, "gpt-5.6-terra", word)[-1], word)
+        for word in ("ultra", "MEDIUM", "medium ", "mediums"):
+            with self.assertRaises(ExecutorUnavailable) as caught:
+                self.executor._build_argv(self.job_dir, "gpt-5.6-terra", word)
+            self.assertIn(repr(word), str(caught.exception))
+            self.assertIn("none, minimal, low, medium, high, xhigh, max", str(caught.exception))
+            self.assertIn("copilot", str(caught.exception))
+
+
+class TheCopilotFlagReachesTheSubprocessTest(copilot_tests._FakeCopilotCase):
+    def test_the_jobs_effort_reaches_the_cli_after_the_model(self):
+        self._queue_stdout(copilot_tests._fixture("completed.jsonl"))
+        self.executor.execute(copilot_tests._request(model="gpt-5.6-terra", effort="medium"))
+        argv = self._record()["argv"]
+        self.assertEqual(argv[argv.index("--model") + 1], "gpt-5.6-terra")
+        self.assertEqual(argv[argv.index("--effort") + 1], "medium")
+        self.assertGreater(argv.index("--effort"), argv.index("--model"))
+
+    def test_a_job_with_no_effort_sends_no_flag(self):
+        self._queue_stdout(copilot_tests._fixture("completed.jsonl"))
+        self.executor.execute(copilot_tests._request(model="gpt-5.6-terra"))
+        self.assertNotIn("--effort", self._record()["argv"])
+
+    def test_the_effort_survives_the_unpinned_retry(self):
+        self._queue(
+            {"stdout": "", "stderr": copilot_tests._fixture("unknown-model.stderr"), "returncode": 1},
+            {"stdout": copilot_tests._fixture("completed.jsonl"), "returncode": 0},
+        )
+        self.executor.execute(copilot_tests._request(model="not-a-model", effort="medium"))
+        first, retry = self._records()
+        self.assertEqual(first["argv"][first["argv"].index("--effort") + 1], "medium")
+        self.assertNotIn("--model", retry["argv"])
+        self.assertEqual(retry["argv"][retry["argv"].index("--effort") + 1], "medium")
+        self.assertTrue(self.executor.last_retried_unpinned)
+
+    def test_a_word_off_the_ladder_fails_this_job_by_name_and_spawns_nothing(self):
+        self._queue_stdout(copilot_tests._fixture("completed.jsonl"))
+        with self.assertRaises(ExecutorUnavailable) as caught:
+            self.executor.execute(copilot_tests._request(model="gpt-5.6-terra", effort="ultra"))
+        self.assertIn("'ultra'", str(caught.exception))
+        self.assertFalse((self.bin_dir / "records.json").exists(), "the CLI must not have been run")
 
 
 class ThereIsNoEffortKnobTest(unittest.TestCase):

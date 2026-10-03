@@ -254,19 +254,21 @@ founder and the referee should both see *why*, not only *what*.
 
 ## Which model runs, and how hard it thinks
 
-**The job says** (specs `009-model-routing` and `010-job-names-the-effort`; design of record
-keel-cloud `canon/designs/model-routing-design.md`). Every inference job the cloud hands this
-runtime may carry a sixth and a seventh key, each a per-host map:
+**The job says** (specs `009-model-routing`, `010-job-names-the-effort` and
+`011-effort-for-codex-copilot`; design of record keel-cloud `canon/designs/model-routing-design.md`).
+Every inference job the cloud hands this runtime may carry a sixth and a seventh key, each a
+per-host map (keel-cloud's table v8, 2026-10-03):
 
 ```json
-"model":  { "claude": "claude-sonnet-5-5", "copilot": "gpt-6-astra", "codex": "gpt-6-astra" },
-"effort": { "claude": "medium" }
+"model":  { "claude": "claude-sonnet-5-5", "copilot": "gpt-5.6-terra", "codex": "gpt-5.6-terra" },
+"effort": { "claude": "medium", "copilot": "medium", "codex": "medium" }
 ```
 
 The runtime reads the entry for its own host and passes it to the CLI as that host's model flag
-(`claude --model`, `copilot --model`, `codex -m`) and, on Claude Code, that host's effort flag
-(`claude --effort`). No entry for this host, or no key at all: no flag, and the CLI's own default
-answers, as before. **That is the whole rule, and it is one rule for both halves.** There is no
+(`claude --model`, `copilot --model`, `codex -m`) and that host's effort flag (`claude --effort`,
+`copilot --effort`, and on Codex -- which has no effort flag -- the config override
+`codex -c model_reasoning_effort=<level>`), each after the model. No entry for this host, or no
+key at all: no flag, and the CLI's own default answers, as before. **That is the whole rule, and it is one rule for both halves.** There is no
 `--<host>-model` flag, no `KEEL_<HOST>_MODEL` variable and no `<host>_model` config key (the
 0.4.0 knobs were removed in 0.5.0), and there is no effort knob of any kind either: both live in
 keel-cloud's routing table and nowhere on this machine, so a deprecated model or a re-certified
@@ -278,14 +280,18 @@ five marks over a 393-case corpus — and the Claude Code CLI's own default is `
 that run at 3.7× the thinking and 2.4× the wall clock for marks `medium` already holds. A founder's
 own CLI handed the model without the effort would run a combination nobody certified.
 
-`--effort` takes `low`, `medium`, `high`, `xhigh` or `max` (measured on Claude Code 2.1.284,
-`tests/fixtures/claude/effort-help.txt`), and **the runtime does not validate the word**: keel-cloud's
-table refuses one outside that ladder at startup and the CLI refuses one at the flag.
+**Three ladders, one per host, because the three CLIs differ** (0.7.0, spec 011):
 
-**Codex and Copilot carry no effort**, because neither CLI's invocation here has a flag to carry one
-— nothing is invented for them, and keel-cloud's table has no row for them. **A reading carries
-none either**: it routes to the light tier, which names Haiku and no effort, because `effort` errors
-on Haiku 4.5.
+| Host | How the effort travels | The ladder | Checked where |
+|---|---|---|---|
+| `claude` | `--effort <level>`, after `--model` | `low`, `medium`, `high`, `xhigh`, `max` (Claude Code 2.1.284, `tests/fixtures/claude/effort-help.txt`) | **not here** (spec 010 FR-008): keel-cloud's table refuses a word off its ladder at startup, and the CLI refuses one at the flag |
+| `copilot` | `--effort <level>`, after `--model` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (GitHub Copilot CLI 1.0.83, `tests/fixtures/copilot/effort-help.txt`; recorded from `--help`, no call made) | **here, per job**: a word off the list fails that job as `LLM_UNAVAILABLE`, naming the word and the ladder, before the CLI is run |
+| `codex` | `-c model_reasoning_effort=<level>`, after `-m` -- there is no `--effort` on this CLI | `low`, `medium`, `high`, `xhigh` -- what every visible model in the catalogue (`~/.codex/models_cache.json`) supports; some list `max` and `ultra` too, and those are refused rather than guessed (codex-cli 0.154.0, `tests/fixtures/codex/exec-config-help.txt`, measured accepted beside `-m` on a ChatGPT login 2026-10-03) | **here, per job**, the same way -- `-c` parses its value as TOML and promises nothing about the key, so nothing measured what the CLI does with a word it does not know |
+
+Nothing is substituted, ever: a job that names a word this host cannot take fails by name on that
+job, and the next one is read afresh. **A reading carries no effort on any host**: it routes to the
+light tier, which carries none (on Claude because `effort` errors on Haiku 4.5; on the OpenAI
+hosts because the light row was screened at the catalogue default and pins none).
 
 **It is a flag, not `CLAUDE_CODE_EFFORT_LEVEL`.** That variable does reach the CLI (the `CLAUDE_`
 prefix is allow-listed through to the subprocess), and that is exactly why it is the wrong mechanism
@@ -409,6 +415,7 @@ carry no `execution` and their bodies are unchanged.
     --max-ai-credits <n>            # n >= 30, a soft cap, never a dollar figure
     -C <job_dir>
     [--model <slug>]                # the job's model["copilot"], when the cloud named one
+    [--effort <level>]              # the job's effort["copilot"], when the cloud named one (0.7.0)
   ```
 
   **The answer is read with or without a `phase`** (keel-e2e-eval DRIFT #59, fixed 2026-09-12):
@@ -498,6 +505,8 @@ carry no `execution` and their bodies are unchanged.
                                     # computer_use image_generation
     -C <job_dir>
     [-m <slug>]                     # the job's model["codex"], when the cloud named one
+    [-c model_reasoning_effort=<level>]  # the job's effort["codex"], when the cloud named one (0.7.0);
+                                    # this CLI has no --effort flag, so the effort is a config override
   ```
 
   **The closed shape is feature flags, and it was proved before it was trusted**: a run so

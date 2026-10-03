@@ -95,6 +95,7 @@ def _request(
     response_contract=None,
     job_id="job-1",
     model=None,
+    effort=None,
 ):
     return InferenceRequest(
         job_id=job_id,
@@ -108,6 +109,7 @@ def _request(
             "response_contract": response_contract or _CONTRACT_COMPLETED,
         },
         model=model,
+        effort=effort,
     )
 
 

@@ -52,6 +52,8 @@ __all__ = [
     "canonical_executor_name",
     "COPILOT_EXCLUDED_TOOLS",
     "COPILOT_MAX_PROMPT_BYTES",
+    "CODEX_EFFORT_LADDER",
+    "COPILOT_EFFORT_LADDER",
     "get_executor",
 ]
 
@@ -97,6 +99,11 @@ class InferenceRequest:
     # wrong mechanism for a per-job value: it is process-wide, it is inherited by anything else the
     # process spawns, and keel-e2e-eval had to write a `judge_env()` that strips it by name to stop a
     # subject's setting from silently scoring its own run. A per-job value belongs on a per-job argv.
+    #
+    # spec 011-effort-for-codex-copilot (0.7.0): the same value reaches the other two hosts too --
+    # Codex as `-c model_reasoning_effort=<level>` after `-m`, Copilot as `--effort <level>` after
+    # `--model` -- each checked against that CLI's own ladder (`CODEX_EFFORT_LADDER`,
+    # `COPILOT_EFFORT_LADDER`) and refused per job, by name, when the word is not on it.
     effort: "str | None" = None
 
 
@@ -959,9 +966,9 @@ class ClaudeCodeExecutor(Executor):
         #
         # Two independent tails rather than one branch, because the two ARE independent: a reading
         # names a model and no effort (it routes to the `light` tier, which carries none, because
-        # `effort` errors on Haiku 4.5), and every Codex and Copilot job names a model and no effort.
-        # Appending both last, effort after model, keeps an argv without an effort byte-identical to
-        # the one this method built before 0.6.0.
+        # `effort` errors on Haiku 4.5), and until keel-cloud's table v8 every Codex and Copilot job
+        # named a model and no effort. Appending both last, effort after model, keeps an argv without
+        # an effort byte-identical to the one this method built before 0.6.0.
         return [
             self._resolved_binary,
             "-p",
@@ -1428,6 +1435,32 @@ def _copilot_reported_model(events: list) -> "str | None":
     return _first_string_for_keys(events, ("chosenModel", "resolvedModel", "model"))
 
 
+# spec 011-effort-for-codex-copilot: one ladder PER HOST, because the three differ. Claude Code
+# has `max` and no `none`; Copilot has `none`, `minimal` and `max`; Codex's catalogue agrees on four.
+# These two are checked here, per job (`_require_effort_on_ladder`); Claude's is not (spec 010
+# FR-008 stands: its CLI refuses a bad word at the flag and names the ladder in `--help`). Each list
+# is the recorded fixture's, verbatim, and a test reads the fixture back against the constant.
+#
+# `copilot --help` 1.0.83, `--effort, --reasoning-effort <level>` (`tests/fixtures/copilot/effort-help.txt`).
+COPILOT_EFFORT_LADDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+# `~/.codex/models_cache.json`'s `supported_reasoning_levels`, the words EVERY visible model lists
+# (codex-cli 0.154.0, 2026-10-03; `tests/fixtures/codex/MANIFEST.json`, `exec-config-help.txt`).
+CODEX_EFFORT_LADDER = ("low", "medium", "high", "xhigh")
+
+
+def _require_effort_on_ladder(host: str, effort: str, ladder: tuple) -> None:
+    """Refuses, per job and by name, an effort word this host's CLI does not list. Raised before
+    any process is spawned, as `ExecutorUnavailable` so the poller reports it on THIS job
+    (`LLM_UNAVAILABLE`, the message quoting the word and the ladder) and runs nothing at a guess.
+    The cloud's table already refuses a word outside its own one ladder at startup; this is the
+    per-host half of the same check, in the one place that knows which CLI it is talking to."""
+    if effort not in ladder:
+        raise ExecutorUnavailable(
+            f"effort {effort!r} is not one this host's CLI takes -- {host} knows "
+            + ", ".join(ladder) + "; the job named it and nothing is substituted"
+        )
+
+
 class CopilotExecutor(Executor):
     """Invokes the `copilot` CLI in the same closed, tool-less, session-less shape.
 
@@ -1478,8 +1511,16 @@ class CopilotExecutor(Executor):
     host_key = "copilot"
     host_version: "str | None" = None
 
-    def _build_argv(self, job_dir: Path, model: "str | None" = None) -> list:
+    def _build_argv(self, job_dir: Path, model: "str | None" = None,
+                    effort: "str | None" = None) -> list:
         """The design's argv, one process per job. Every flag here was accepted by 1.0.83.
+
+        **`--effort <level>`, last, only when the job named one** (spec 011; keel-cloud table v8).
+        `copilot --help` on 1.0.83 lists the choices -- `tests/fixtures/copilot/effort-help.txt`,
+        `COPILOT_EFFORT_LADDER` -- and a word off that list is refused HERE, per job and by name,
+        before any process is spawned (`_require_effort_on_ladder`); nothing is substituted. The
+        flag was recorded from `--help` only: whether a given model honours it on the founder's
+        plan is unmeasured, and that is keel-cloud's screen to spend, not this runtime's to guess.
 
         No `--json-schema`, no `--system-prompt`, no `--max-turns` and no timeout flag exist on
         this CLI; the first two moved into the prompt (`_render_copilot_prompt`), the last two
@@ -1518,10 +1559,14 @@ class CopilotExecutor(Executor):
         ]
         if model:
             argv += ["--model", model]
+        if effort:
+            _require_effort_on_ladder("copilot", effort, COPILOT_EFFORT_LADDER)
+            argv += ["--effort", effort]
         return argv
 
-    def _invoke(self, prompt: str, job_dir: Path, model: "str | None" = None):
-        argv = self._build_argv(job_dir, model)
+    def _invoke(self, prompt: str, job_dir: Path, model: "str | None" = None,
+                effort: "str | None" = None):
+        argv = self._build_argv(job_dir, model, effort)
         completed = _run_with_prompt_on_stdin(
             argv,
             prompt,
@@ -1638,7 +1683,11 @@ class CopilotExecutor(Executor):
         job_dir.mkdir(parents=True, exist_ok=True)
 
         model = _begin_model_report(self, request)
-        events, completed = self._invoke(prompt, job_dir, model)
+        # spec 011: the job's effort, read by the poller exactly as the model was, passed on every
+        # pass of this job -- the first, the unpinned retry and the recovery pass -- for spec 010
+        # FR-005's reason: a model refusal is a refusal of the MODEL, and the effort stays.
+        effort = request.effort if isinstance(request.effort, str) and request.effort.strip() else None
+        events, completed = self._invoke(prompt, job_dir, model, effort)
         all_events = list(events)
         if model and _copilot_refused_model(events, completed):
             # spec 009 FR-006: measured on 1.0.83 as one stderr line and no JSONL at all
@@ -1646,7 +1695,7 @@ class CopilotExecutor(Executor):
             # which would otherwise report it as LLM_UNAVAILABLE. One retry, unpinned.
             self.last_retried_unpinned = True
             model = None
-            events, completed = self._invoke(prompt, job_dir, None)
+            events, completed = self._invoke(prompt, job_dir, None, effort)
             all_events.extend(events)
         self.last_events = all_events
 
@@ -1664,7 +1713,7 @@ class CopilotExecutor(Executor):
             # validator did, and `last_schema_error` carries it either way.
             self.last_schema_error = str(first_failure)
             recovery_prompt = prompt + "\n\n" + _recovery_section(self.last_schema_error)
-            events2, completed2 = self._invoke(recovery_prompt, job_dir, model)
+            events2, completed2 = self._invoke(recovery_prompt, job_dir, model, effort)
             all_events.extend(events2)
             self.last_events = all_events
             self._assert_ran(events2, completed2)
@@ -1923,7 +1972,24 @@ class CodexExecutor(Executor):
     host_key = "codex"
     host_version: "str | None" = None
 
-    def _build_argv(self, job_dir: Path, model: "str | None" = None) -> list:
+    def _build_argv(self, job_dir: Path, model: "str | None" = None,
+                    effort: "str | None" = None) -> list:
+        """The closed argv, with the model and then the effort last, each only when the job
+        named one.
+
+        **There is no `--effort` on this CLI.** The effort is a config override,
+        `-c model_reasoning_effort=<level>` (spec 011; `tests/fixtures/codex/exec-config-help.txt`
+        is the `-c, --config` entry of `codex exec --help` on 0.154.0, which names neither the key
+        nor a ladder), measured accepted beside `-m` on the founder's ChatGPT login on 2026-10-03
+        (keel-cloud `canon/drafts/codex-terra-luna-screen-2026-10-03.md` section 6.2). The ladder is
+        the catalogue's: every visible model in `~/.codex/models_cache.json` supports
+        `CODEX_EFFORT_LADDER`'s four words, some list more (`max`, `ultra`), and a word off the four
+        is refused HERE, per job and by name, before any process is spawned -- because `-c` parses
+        its value as TOML and promises nothing about the key, so nothing measured what the CLI would
+        do with a word it does not know, and a runtime that guesses would be the one thing in the
+        chain that cannot be checked. Nothing in the `--json` stream names the effort that ran, so,
+        as for the model, this argv is the record.
+        """
         argv = [self._resolved_binary, "exec", "-"]
         argv += list(CODEX_EXEC_FLAGS)
         for feature in CODEX_DISABLED_FEATURES:
@@ -1931,10 +1997,14 @@ class CodexExecutor(Executor):
         argv += ["-C", str(job_dir)]
         if model:
             argv += ["-m", model]
+        if effort:
+            _require_effort_on_ladder("codex", effort, CODEX_EFFORT_LADDER)
+            argv += ["-c", f"model_reasoning_effort={effort}"]
         return argv
 
-    def _invoke(self, prompt: str, job_dir: Path, model: "str | None" = None):
-        argv = self._build_argv(job_dir, model)
+    def _invoke(self, prompt: str, job_dir: Path, model: "str | None" = None,
+                effort: "str | None" = None):
+        argv = self._build_argv(job_dir, model, effort)
         completed = _run_with_prompt_on_stdin(
             argv,
             prompt,
@@ -2011,7 +2081,11 @@ class CodexExecutor(Executor):
         job_dir.mkdir(parents=True, exist_ok=True)
 
         model = _begin_model_report(self, request)
-        events, completed = self._invoke(prompt, job_dir, model)
+        # spec 011: the job's effort, read by the poller exactly as the model was, passed on every
+        # pass of this job -- the first, the unpinned retry and the recovery pass -- for spec 010
+        # FR-005's reason: a model refusal is a refusal of the MODEL, and the effort stays.
+        effort = request.effort if isinstance(request.effort, str) and request.effort.strip() else None
+        events, completed = self._invoke(prompt, job_dir, model, effort)
         all_events = list(events)
         if model and _codex_refused_model(events, completed):
             # spec 009 FR-006: measured on 0.154.0 as an `error` + `turn.failed` pair carrying the
@@ -2019,7 +2093,7 @@ class CodexExecutor(Executor):
             # `_assert_ran`. One retry, unpinned; the refused pass stays in the log.
             self.last_retried_unpinned = True
             model = None
-            events, completed = self._invoke(prompt, job_dir, None)
+            events, completed = self._invoke(prompt, job_dir, None, effort)
             all_events.extend(events)
         self.last_events = all_events
 
@@ -2034,7 +2108,7 @@ class CodexExecutor(Executor):
         except InvalidResponse as first_failure:
             self.last_schema_error = str(first_failure)
             recovery_prompt = prompt + "\n\n" + _recovery_section(self.last_schema_error)
-            events2, completed2 = self._invoke(recovery_prompt, job_dir, model)
+            events2, completed2 = self._invoke(recovery_prompt, job_dir, model, effort)
             all_events.extend(events2)
             self.last_events = all_events
             self._assert_ran(events2, completed2)
